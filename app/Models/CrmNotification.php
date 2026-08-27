@@ -1,0 +1,25 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Model;
+
+class CrmNotification extends Model
+{
+    use HasUuids;
+
+    protected $table = 'notifications';
+
+    protected $fillable = ['user_id', 'type', 'title', 'message', 'url', 'data', 'read_at'];
+
+    protected function casts(): array
+    {
+        return ['data' => 'array', 'read_at' => 'datetime'];
+    }
+
+    public function user()
+    {
+        return $this->belongsTo(User::class);
+    }
+}

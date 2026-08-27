@@ -1,0 +1,21 @@
+@extends('layouts.app')
+@section('title','Notifikasi & Pengingat')
+@section('eyebrow','Workspace / Pusat pengingat')
+@section('content')
+<div class="mx-auto max-w-5xl space-y-5">
+    <div class="grid gap-4 lg:grid-cols-2">
+        <section class="card overflow-hidden">
+            <header class="flex items-center justify-between border-b border-rose-100 bg-rose-50/60 px-5 py-4"><div><h3 class="section-title text-rose-700">Follow-up terlambat</h3><p class="mt-1 text-[10px] text-rose-500">Jadwal yang sudah melewati batas waktu.</p></div><span class="badge bg-rose-100 text-rose-700">{{ $overdueFollowUps->count() }}</span></header>
+            <div class="divide-y divide-slate-100">@forelse($overdueFollowUps as $followUp)<article class="p-4"><div class="flex items-start gap-3"><span class="mt-1 size-2.5 shrink-0 rounded-full bg-rose-500 ring-4 ring-rose-100"></span><div class="min-w-0 flex-1"><div class="text-xs font-extrabold text-ink">{{ $followUp->summary }}</div><div class="mt-1 text-[10px] font-semibold text-slate-500">{{ $followUp->customer->company_name }} · {{ $followUp->user->name }}</div><div class="mt-1 text-[10px] font-bold text-rose-600">{{ $followUp->next_follow_up_at->translatedFormat('d M Y, H:i') }} · {{ $followUp->next_follow_up_at->diffForHumans() }}</div></div></div><div class="mt-3 flex flex-wrap gap-2 pl-5"><a href="{{ route('activities.follow-up',$followUp) }}" class="btn-primary h-9">Kerjakan follow-up</a><form method="POST" action="{{ route('activities.follow-up.complete',$followUp) }}" onsubmit="return confirm('Tandai follow-up ini sudah selesai?')">@csrf<button class="btn-secondary h-9">Tandai selesai</button></form></div></article>@empty<div class="p-8 text-center text-xs text-slate-400">Tidak ada follow-up yang terlambat.</div>@endforelse</div>
+        </section>
+
+        <section class="card overflow-hidden">
+            <header class="flex items-center justify-between border-b border-amber-100 bg-amber-50/60 px-5 py-4"><div><h3 class="section-title text-amber-700">Mendekati batas waktu</h3><p class="mt-1 text-[10px] text-amber-600">Jadwal dalam dua hari ke depan.</p></div><span class="badge bg-amber-100 text-amber-700">{{ $upcomingFollowUps->count() }}</span></header>
+            <div class="divide-y divide-slate-100">@forelse($upcomingFollowUps as $followUp)<article class="p-4"><div class="flex items-start gap-3"><span class="mt-1 size-2.5 shrink-0 rounded-full bg-amber-400 ring-4 ring-amber-100"></span><div class="min-w-0 flex-1"><div class="text-xs font-extrabold text-ink">{{ $followUp->summary }}</div><div class="mt-1 text-[10px] font-semibold text-slate-500">{{ $followUp->customer->company_name }} · {{ $followUp->user->name }}</div><div class="mt-1 text-[10px] font-bold text-amber-700">{{ $followUp->next_follow_up_at->translatedFormat('d M Y, H:i') }} · {{ $followUp->next_follow_up_at->diffForHumans() }}</div></div></div><div class="mt-3 pl-5"><a href="{{ route('activities.follow-up',$followUp) }}" class="btn-secondary h-9">Kerjakan lebih awal →</a></div></article>@empty<div class="p-8 text-center text-xs text-slate-400">Tidak ada jadwal dalam dua hari ke depan.</div>@endforelse</div>
+        </section>
+    </div>
+
+    <section class="card overflow-hidden"><header class="border-b border-slate-100 px-5 py-4"><h3 class="section-title">Notifikasi sistem</h3></header><div class="divide-y divide-slate-100">@forelse($notifications as $notification)<form method="POST" action="{{ route('notifications.read',$notification) }}">@csrf<button class="flex w-full gap-4 p-5 text-left hover:bg-slate-50"><span class="mt-1 size-2.5 shrink-0 rounded-full {{ $notification->read_at?'bg-slate-200':'bg-brand-500' }}"></span><span class="min-w-0 flex-1"><span class="block text-sm font-extrabold text-ink">{{ $notification->title }}</span><span class="mt-1 block text-xs leading-relaxed text-slate-500">{{ $notification->message }}</span><span class="mt-2 block text-[10px] font-semibold text-slate-400">{{ $notification->created_at->diffForHumans() }}</span></span><span class="text-slate-300">→</span></button></form>@empty<div class="p-10 text-center text-sm text-slate-400">Tidak ada notifikasi sistem.</div>@endforelse</div></section>
+    @if($notifications->hasPages())<div>{{ $notifications->links() }}</div>@endif
+</div>
+@endsection
