@@ -159,7 +159,7 @@
     </aside>
 
     <div class="flex h-full min-w-0 flex-col gap-5">
-        @if(count($customer->interestItems()))
+        @if(count($customer->interestItems()) && $opportunityOptions->isEmpty())
             <section class="card overflow-hidden">
                 <div class="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
                     <div>

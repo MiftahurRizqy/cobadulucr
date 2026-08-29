@@ -31,7 +31,8 @@
             ['activities.index', 'Aktivitas', 'activities.view', 'activity'],
         ],
         'Laporan' => [
-            ['reports.index', 'Laporan & Analitik', 'reports.view', 'report'],
+            ['kpi.index', 'KPI', 'kpi.view', 'kpi'],
+            ['reports.index', 'Laporan Leads', 'reports.view', 'report'],
         ],
         'Administrasi' => [
             ['users.index', 'Pengguna', 'admin.manage', 'users'],
@@ -52,6 +53,7 @@
         'kanban' => '<rect x="3" y="3" width="7" height="18" rx="2"/><rect x="14" y="3" width="7" height="11" rx="2"/>',
         'activity' => '<path d="M3 12h4l3-9 4 18 3-9h4"/>',
         'report' => '<path d="M3 3v18h18"/><path d="m7 16 4-5 4 3 5-7"/>',
+        'kpi' => '<path d="M4 19V9m6 10V5m6 14v-7m4 7H2"/><path d="m4 6 6-3 6 5 4-3"/>',
         'users' => '<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M20 8v6m3-3h-6"/>',
         'area' => '<path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/>',
         'shield' => '<path d="M12 22C7 20 4 17 4 11V5l8-3 8 3v6c0 6-3 9-8 11Z"/><path d="m9 12 2 2 4-4"/>',
@@ -60,7 +62,6 @@
     ];
     $quickItems = collect([
         ['leads.create','Lead baru','Calon customer baru','leads.view'],
-        ['customers.create','Customer langsung','Tambah customer tanpa melalui lead','customers.view'],
         ['opportunities.create','Opportunity baru','Buat peluang penjualan','opportunities.view'],
         ['activities.create','Catat aktivitas','Meeting, telepon, kunjungan','activities.view'],
         ['tasks.create','Buat task','Tetapkan task dan batas waktu','tasks.view'],
@@ -88,7 +89,7 @@
     presenceOpen: false,
     presenceLoading: false,
     presenceUsers: [],
-    settingsOpen: @js(request()->routeIs('settings.customer-types.*', 'settings.activity-evidence.*')),
+    settingsOpen: @js(request()->routeIs('settings.customer-types.*', 'settings.activity-evidence.*', 'settings.validation.*', 'pipelines.*')),
     async loadPresence() {
         this.presenceOpen = !this.presenceOpen;
         if (!this.presenceOpen) return;
@@ -128,13 +129,17 @@
                         @foreach($visibleItems as [$route, $label, $permission, $icon])
                             @php($active = $isNavActive($route))
                             @if($route === 'settings.customer-types.index')
-                            @php($active = request()->routeIs('settings.customer-types.*', 'settings.activity-evidence.*'))
+                            @php($active = request()->routeIs('settings.customer-types.*', 'settings.activity-evidence.*', 'settings.validation.*', 'pipelines.*'))
                             <button type="button" data-settings-nav title="{{ $label }}" @click="settingsOpen = !settingsOpen" :aria-expanded="settingsOpen" class="nav-item relative w-full {{ $active ? 'nav-item-active' : '' }} lg:justify-center lg:gap-0 lg:px-0 lg:group-hover/sidebar:justify-start lg:group-hover/sidebar:gap-3 lg:group-hover/sidebar:px-3">
                                 <svg class="size-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">{!! $icons[$icon] !!}</svg>
                                 <span class="min-w-0 overflow-hidden whitespace-nowrap text-left opacity-100 transition-all duration-200 lg:max-w-0 lg:flex-none lg:opacity-0 lg:group-hover/sidebar:max-w-40 lg:group-hover/sidebar:flex-1 lg:group-hover/sidebar:opacity-100">{{ $label }}</span>
                                 <svg class="size-3.5 shrink-0 text-slate-400 transition-all duration-200 lg:w-0 lg:opacity-0 lg:group-hover/sidebar:w-3.5 lg:group-hover/sidebar:opacity-100" :class="settingsOpen && 'rotate-90'" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 0 1 .02-1.06L11.168 10 7.23 6.29a.75.75 0 1 1 1.04-1.08l4.5 4.25a.75.75 0 0 1 0 1.08l-4.5 4.25a.75.75 0 0 1-1.06-.02Z" clip-rule="evenodd"/></svg>
                             </button>
                             <div data-settings-submenu x-show="settingsOpen" x-cloak x-transition.opacity.duration.150ms class="ml-7 mt-1 max-w-[190px] space-y-0.5 overflow-hidden border-l border-slate-200 pl-2 lg:invisible lg:hidden lg:group-hover/sidebar:visible lg:group-hover/sidebar:block">
+                                <a href="{{ route('pipelines.index') }}" class="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[11px] font-bold transition hover:bg-brand-50 hover:text-brand-700 {{ request()->routeIs('pipelines.*') ? 'bg-brand-50 text-brand-700' : 'text-slate-500' }}">
+                                    <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="10" rx="1"/><rect x="17" y="4" width="4" height="7" rx="1"/></svg>
+                                    <span>Pipeline</span>
+                                </a>
                                 <a href="{{ route('settings.customer-types.index') }}" class="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[11px] font-bold transition hover:bg-brand-50 hover:text-brand-700 {{ request()->routeIs('settings.customer-types.*') ? 'bg-brand-50 text-brand-700' : 'text-slate-500' }}">
                                     <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M4 12h16M4 17h10"/><circle cx="18" cy="17" r="2"/></svg>
                                     <span>Jenis Customer</span>
@@ -142,6 +147,10 @@
                                 <a href="{{ route('settings.activity-evidence.index') }}" class="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[11px] font-bold transition hover:bg-brand-50 hover:text-brand-700 {{ request()->routeIs('settings.activity-evidence.*') ? 'bg-brand-50 text-brand-700' : 'text-slate-500' }}">
                                     <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5h16v14H4z"/><path d="m8 14 2-2 2 2 3-4 3 4"/><circle cx="9" cy="9" r="1"/></svg>
                                     <span>Kebijakan Bukti</span>
+                                </a>
+                                <a href="{{ route('settings.validation.index') }}" class="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[11px] font-bold transition hover:bg-brand-50 hover:text-brand-700 {{ request()->routeIs('settings.validation.*') ? 'bg-brand-50 text-brand-700' : 'text-slate-500' }}">
+                                    <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14M12 5v14"/><circle cx="12" cy="12" r="9"/></svg>
+                                    <span>Validasi Data</span>
                                 </a>
                             </div>
                             @continue
@@ -267,7 +276,7 @@
             @if(session('success'))
                 <div
                     x-data="{ show: true }"
-                    x-init="setTimeout(() => show = false, 4500)"
+                    x-init="setTimeout(() => show = false, 7000)"
                     x-show="show"
                     x-transition:enter="transition ease-out duration-200"
                     x-transition:enter-start="translate-y-2 opacity-0 sm:translate-y-0 sm:translate-x-3"

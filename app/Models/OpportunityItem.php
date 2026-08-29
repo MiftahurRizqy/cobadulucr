@@ -10,7 +10,7 @@ class OpportunityItem extends Model
     use Auditable;
 
     protected $fillable = [
-        'product_id', 'product_name', 'photo_path', 'quantity', 'quantity_unit',
+        'product_id', 'product_name', 'market_segment', 'photo_path', 'quantity', 'quantity_unit',
         'target_price', 'unit_price', 'subtotal', 'deal_status',
         'deal_status_updated_by', 'deal_status_updated_at',
     ];

@@ -11,6 +11,7 @@ use App\Http\Controllers\CustomerTypeSettingController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DepartmentActivityPolicyController;
 use App\Http\Controllers\LeadController;
+use App\Http\Controllers\KpiController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OpportunityController;
 use App\Http\Controllers\PipelineController;
@@ -19,6 +20,7 @@ use App\Http\Controllers\ReportController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\TaskController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\ValidationSettingController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware('guest')->group(function () {
@@ -85,6 +87,12 @@ Route::middleware(['auth', 'active'])->group(function () {
     Route::get('/reports', ReportController::class)->middleware('permission:reports.view')->name('reports.index');
     Route::get('/reports/export.csv', [ReportController::class, 'exportCsv'])->middleware('permission:reports.view')->name('reports.export.csv');
     Route::get('/reports/export.pdf', [ReportController::class, 'exportPdf'])->middleware('permission:reports.view')->name('reports.export.pdf');
+    Route::middleware('permission:kpi.view')->group(function () {
+        Route::get('/kpi', [KpiController::class, 'index'])->name('kpi.index');
+        Route::get('/kpi/export/excel', [KpiController::class, 'exportExcel'])->name('kpi.export.excel');
+        Route::get('/kpi/export/pdf', [KpiController::class, 'exportPdf'])->name('kpi.export.pdf');
+        Route::put('/kpi/{sales}', [KpiController::class, 'update'])->name('kpi.update');
+    });
 
     Route::middleware('permission:admin.manage')->group(function () {
         Route::resource('users', UserController::class)->except(['show', 'destroy']);
@@ -93,6 +101,8 @@ Route::middleware(['auth', 'active'])->group(function () {
         Route::resource('pipelines', PipelineController::class)->except(['show', 'destroy']);
         Route::get('/settings/activity-evidence', [DepartmentActivityPolicyController::class, 'index'])->name('settings.activity-evidence.index');
         Route::put('/settings/activity-evidence', [DepartmentActivityPolicyController::class, 'update'])->name('settings.activity-evidence.update');
+        Route::get('/settings/validation', [ValidationSettingController::class, 'index'])->name('settings.validation.index');
+        Route::put('/settings/validation', [ValidationSettingController::class, 'update'])->name('settings.validation.update');
         Route::get('/settings/customer-types', [CustomerTypeSettingController::class, 'index'])->name('settings.customer-types.index');
         Route::post('/settings/customer-types', [CustomerTypeSettingController::class, 'store'])->name('settings.customer-types.store');
         Route::put('/settings/customer-types/{customerType}', [CustomerTypeSettingController::class, 'update'])->name('settings.customer-types.update');

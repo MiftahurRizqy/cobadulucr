@@ -8,6 +8,7 @@ use App\Models\BusinessUnit;
 use App\Models\Customer;
 use App\Models\Lead;
 use App\Models\User;
+use App\Models\SystemSetting;
 use App\Support\CustomerDuplicateDetector;
 use App\Support\BusinessUnitResolver;
 use Illuminate\Http\Request;
@@ -77,8 +78,8 @@ class LeadController extends Controller
         abort_if($lead->status === 'converted', 422, 'Lead ini sudah menjadi customer.');
 
         $data = $request->validate([
-            'legal_name' => ['required', 'string', 'max:255'],
-            'npwp' => ['required', 'string', 'max:50'],
+            'legal_name' => [SystemSetting::bool('customer_legal_name_required', true, $request->user()) ? 'required' : 'nullable', 'string', 'max:255'],
+            'npwp' => [SystemSetting::bool('customer_npwp_required', true, $request->user()) ? 'required' : 'nullable', 'string', 'max:50'],
             'supporting_document' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:10240'],
         ], [
             'legal_name.required' => 'Nama legal wajib diisi sebelum lead dijadikan customer.',
@@ -101,6 +102,7 @@ class LeadController extends Controller
                 'area_id' => $lead->area_id,
                 'business_unit_id' => $lead->business_unit_id,
                 'business_type' => $lead->business_type,
+                'became_customer_at' => now(),
                 'product_interest' => $lead->product_interest,
                 'product_interests' => $lead->interestItems(),
                 'estimated_need' => $lead->estimated_need,

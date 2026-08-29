@@ -11,6 +11,7 @@ use App\Models\OpportunityItem;
 use App\Models\Task;
 use App\Models\User;
 use App\Support\BusinessUnitResolver;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -19,8 +20,16 @@ class ReportController extends Controller
 {
     public function __invoke(Request $request)
     {
+        // Ringkasan performa sales sudah dipusatkan di KPI. Menu laporan kini
+        // khusus untuk analisis konversi Customer & Lead.
+        $request->merge(['view' => 'conversion']);
         $user = $request->user();
         [$dateFrom, $dateTo] = $this->periodRange($request);
+        $periodLabel = Carbon::parse($dateFrom)->isSameDay(Carbon::parse($dateFrom)->startOfMonth())
+            && Carbon::parse($dateTo)->isSameDay(Carbon::parse($dateTo)->endOfMonth())
+            && Carbon::parse($dateFrom)->isSameMonth(Carbon::parse($dateTo))
+                ? Carbon::parse($dateFrom)->translatedFormat('F Y')
+                : Carbon::parse($dateFrom)->translatedFormat('d M Y').' – '.Carbon::parse($dateTo)->translatedFormat('d M Y');
 
         $leadQuery = Lead::query()
             ->visibleTo($user)
@@ -121,11 +130,32 @@ class ReportController extends Controller
             ->withQueryString();
 
         $opps = Opportunity::visibleTo($user);
+        $salesMonth = preg_match('/^\d{4}-\d{2}$/', (string) $request->input('sales_month'))
+            ? (string) $request->input('sales_month')
+            : now()->format('Y-m');
+        $salesFrom = Carbon::createFromFormat('Y-m', $salesMonth)->startOfMonth();
+        $salesTo = $salesFrom->copy()->endOfMonth();
+        $wonOpportunities = (clone $opps)
+            ->where('status', 'won')
+            ->whereBetween('stage_entered_at', [$salesFrom->copy()->startOfDay(), $salesTo->copy()->endOfDay()])
+            ->with('owner:id,name')
+            ->withSum('items', 'subtotal')
+            ->get();
+        $wonValue = $wonOpportunities->sum(fn (Opportunity $opportunity) => $opportunity->realizedValue());
+        $byOwner = $wonOpportunities->groupBy('owner_id')->map(function ($opportunities) {
+            return (object) [
+                'owner_id' => $opportunities->first()->owner_id,
+                'owner' => $opportunities->first()->owner,
+                'total' => $opportunities->count(),
+                'value' => $opportunities->sum(fn (Opportunity $opportunity) => $opportunity->realizedValue()),
+            ];
+        })->values();
 
         return view('reports.index', [
             'period' => $request->input('period', 'all'),
             'dateFrom' => $dateFrom,
             'dateTo' => $dateTo,
+            'periodLabel' => $periodLabel,
             'owners' => User::query()->whereIn('id', Lead::query()->visibleTo($user)->select('owner_id'))->orderBy('name')->get(['id', 'name']),
             'areas' => Area::query()->orderBy('name')->get(['id', 'name']),
             'businessUnits' => app(BusinessUnitResolver::class)->options()->pluck('name'),
@@ -146,13 +176,15 @@ class ReportController extends Controller
             ],
             'conversionRows' => $conversionRows,
             'pipelineValue' => (clone $opps)->where('status', 'open')->sum('estimated_value'),
-            'wonValue' => (clone $opps)->where('status', 'won')->sum('estimated_value'),
-            'wonCount' => (clone $opps)->where('status', 'won')->count(),
-            'lostCount' => (clone $opps)->where('status', 'lost')->count(),
+            'salesMonth' => $salesMonth,
+            'salesFrom' => $salesFrom,
+            'wonValue' => $wonValue,
+            'wonCount' => $wonOpportunities->count(),
+            'lostCount' => (clone $opps)->where('status', 'lost')->whereBetween('stage_entered_at', [$salesFrom->copy()->startOfDay(), $salesTo->copy()->endOfDay()])->count(),
             'customers' => Customer::visibleTo($user)->count(),
             'activities' => Activity::visibleTo($user)->whereMonth('occurred_at', now()->month)->count(),
             'overdueTasks' => Task::visibleTo($user)->whereNotIn('status', ['done', 'cancelled'])->where('due_at', '<', now())->count(),
-            'byOwner' => Opportunity::visibleTo($user)->with('owner')->selectRaw('owner_id, count(*) as total, sum(estimated_value) as value')->groupBy('owner_id')->get(),
+            'byOwner' => $byOwner,
         ]);
     }
 
@@ -297,6 +329,26 @@ class ReportController extends Controller
 
     private function periodRange(Request $request): array
     {
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $request->input('start_date'))
+            && preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $request->input('end_date'))) {
+            try {
+                $from = Carbon::createFromFormat('Y-m-d', (string) $request->input('start_date'))->startOfDay();
+                $to = Carbon::createFromFormat('Y-m-d', (string) $request->input('end_date'))->endOfDay();
+
+                if ($from->lte($to)) {
+                    return [$from->toDateString(), $to->toDateString()];
+                }
+            } catch (\Throwable) {
+                // Gunakan periode bulan berjalan jika tanggal tidak valid.
+            }
+        }
+
+        if (preg_match('/^\d{4}-\d{2}$/', (string) $request->input('report_month'))) {
+            $month = Carbon::createFromFormat('Y-m', (string) $request->input('report_month'));
+
+            return [$month->copy()->startOfMonth()->toDateString(), $month->copy()->endOfMonth()->toDateString()];
+        }
+
         return match ($request->input('period', 'all')) {
             'today' => [today()->toDateString(), today()->toDateString()],
             'week' => [now()->startOfWeek()->toDateString(), now()->endOfWeek()->toDateString()],
@@ -304,7 +356,7 @@ class ReportController extends Controller
             'last_3_months' => [today()->subMonths(3)->toDateString(), today()->toDateString()],
             'year' => [now()->startOfYear()->toDateString(), now()->endOfYear()->toDateString()],
             'custom' => [$request->date_from ?: null, $request->date_to ?: null],
-            default => [null, null],
+            default => [now()->startOfMonth()->toDateString(), now()->endOfMonth()->toDateString()],
         };
     }
 }

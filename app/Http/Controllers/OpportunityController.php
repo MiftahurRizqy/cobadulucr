@@ -10,6 +10,7 @@ use App\Models\Pipeline;
 use App\Models\PipelineStage;
 use App\Models\Product;
 use App\Models\User;
+use App\Models\SystemSetting;
 use App\Services\CrmNotifier;
 use App\Services\StageTransitionService;
 use Illuminate\Http\Request;
@@ -138,7 +139,8 @@ class OpportunityController extends Controller
             return [
                 'product_id' => $product?->id,
                 'product_name' => ($item['product_name'] ?? null) ?: $product?->name,
-                'photo_path' => $item['photo']->store('opportunity-products', 'public'),
+                'market_segment' => $item['market_segment'] ?? null,
+                'photo_path' => isset($item['photo']) ? $item['photo']->store('opportunity-products', 'public') : null,
                 'quantity' => $quantity,
                 'quantity_unit' => $item['quantity_unit'] ?? $product?->unit ?? 'pcs',
                 'target_price' => $item['target_price'] ?? null,
@@ -245,7 +247,6 @@ class OpportunityController extends Controller
         $data = $request->validate([
             'current_supplier' => ['nullable', 'string', 'max:255'],
             'competitor' => ['nullable', 'string', 'max:255'],
-            'lead_source' => ['nullable', Rule::in(['website', 'whatsapp', 'referral', 'sales_visit', 'event', 'ads', 'social_media', 'marketplace', 'database', 'telemarketing', 'walk_in', 'other'])],
         ]);
 
         $opportunity->update($data);
@@ -282,16 +283,19 @@ class OpportunityController extends Controller
         $this->authorizeOpportunity($opportunity);
         $data = $request->validate([
             'product_name' => ['required', 'string', 'max:255'],
+            'market_segment' => ['nullable', Rule::in(['drink', 'food'])],
             'quantity' => ['required', 'integer', 'min:1'],
             'quantity_unit' => ['required', Rule::in(array_keys(Opportunity::QUANTITY_UNITS))],
             'target_price' => ['nullable', 'numeric', 'min:0'],
             'unit_price' => ['nullable', 'numeric', 'min:0'],
-            'photo' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+            'photo' => [SystemSetting::bool('opportunity_product_photo_required', true, $request->user()) ? 'required' : 'nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
         ]);
 
         $quantity = (int) $data['quantity'];
         $unitPrice = (float) ($data['unit_price'] ?? 0);
-        $data['photo_path'] = $data['photo']->store('opportunity-products', 'public');
+        if (isset($data['photo'])) {
+            $data['photo_path'] = $data['photo']->store('opportunity-products', 'public');
+        }
         unset($data['photo']);
         $item = $opportunity->items()->create([
             ...$data,
@@ -332,11 +336,12 @@ class OpportunityController extends Controller
         abort_unless((int) $item->opportunity_id === (int) $opportunity->id, 404);
         $data = $request->validate([
             'product_name' => ['required', 'string', 'max:255'],
+            'market_segment' => ['nullable', Rule::in(['drink', 'food'])],
             'quantity' => ['required', 'integer', 'min:1'],
             'quantity_unit' => ['required', Rule::in(array_keys(Opportunity::QUANTITY_UNITS))],
             'target_price' => ['nullable', 'numeric', 'min:0'],
             'unit_price' => ['nullable', 'numeric', 'min:0'],
-            'photo' => [$item->photo_path ? 'nullable' : 'required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+            'photo' => [$item->photo_path || ! SystemSetting::bool('opportunity_product_photo_required', true, $request->user()) ? 'nullable' : 'required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
         ]);
         $oldPhotoPath = $item->photo_path;
         if (isset($data['photo'])) {
@@ -392,14 +397,14 @@ class OpportunityController extends Controller
             'items' => ['required', 'array', 'min:1'],
             'items.*.product_id' => ['nullable', 'exists:products,id'],
             'items.*.product_name' => ['nullable', 'string', 'max:255', 'required_without:items.*.product_id'],
+            'items.*.market_segment' => ['nullable', Rule::in(['drink', 'food'])],
             'items.*.quantity' => ['required', 'integer', 'min:1'],
             'items.*.quantity_unit' => ['required', Rule::in(array_keys(Opportunity::QUANTITY_UNITS))],
             'items.*.target_price' => ['nullable', 'numeric', 'min:0'],
             'items.*.unit_price' => ['nullable', 'numeric', 'min:0'],
-            'items.*.photo' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+            'items.*.photo' => [SystemSetting::bool('opportunity_product_photo_required', true, $request->user()) ? 'required' : 'nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
             'current_supplier' => ['nullable'], 'competitor' => ['nullable'], 'expected_close_date' => ['nullable', 'date'],
             'next_action' => ['nullable'], 'next_follow_up_at' => ['nullable', 'date'],
-            'lead_source' => ['nullable', Rule::in(['website', 'whatsapp', 'referral', 'sales_visit', 'event', 'ads', 'social_media', 'marketplace', 'database', 'telemarketing', 'walk_in', 'other'])],
             'priority' => ['required', 'in:low,medium,high'],
         ]);
     }

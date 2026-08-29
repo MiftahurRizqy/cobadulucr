@@ -1054,7 +1054,7 @@ class CrmTest extends TestCase
             ->assertSee('Nilai target opportunity')
             ->assertSee('Target Harga')
             ->assertDontSee('Harga penawaran *')
-            ->assertSee('Target harga per UOM yang diharapkan customer')
+            ->assertSee('Target Harga per UOM')
             ->assertSee('Nilai target opportunity')
             ->assertDontSee('>Subtotal</label>', false)
             ->assertSee('Supplier yang digunakan saat ini')
@@ -1567,6 +1567,11 @@ class CrmTest extends TestCase
         $this->assertSame(0, Opportunity::count());
 
         $this->actingAs($csa)
+            ->get(route('customers.index', ['view' => 'prospects']))
+            ->assertOk()
+            ->assertDontSee('Lead Owner Test');
+
+        $this->actingAs($csa)
             ->get(route('customers.show', $customer))
             ->assertOk()
             ->assertSee('Kebutuhan awal')
@@ -1746,6 +1751,41 @@ class CrmTest extends TestCase
             ->assertSee('data-settings-submenu', false)
             ->assertSeeText('Jenis Customer')
             ->assertSeeText('Kebijakan Bukti');
+    }
+
+    public function test_admin_can_configure_required_crm_fields(): void
+    {
+        $admin = User::factory()->create(['authority_level' => 'master_admin', 'is_active' => true]);
+
+        $this->actingAs($admin)->get(route('settings.validation.index'))
+            ->assertOk()
+            ->assertSee('Foto produk opportunity')
+            ->assertSee('Nama legal customer')
+            ->assertSee('NPWP customer');
+
+        $this->actingAs($admin)->put(route('settings.validation.update'), [
+            'opportunity_product_photo_required' => '0',
+            'customer_legal_name_required' => '0',
+            'customer_npwp_required' => '0',
+        ])->assertRedirect()->assertSessionHas('success');
+
+        $this->assertFalse(\App\Models\SystemSetting::bool('opportunity_product_photo_required'));
+        $this->assertFalse(\App\Models\SystemSetting::bool('customer_legal_name_required'));
+        $this->assertFalse(\App\Models\SystemSetting::bool('customer_npwp_required'));
+
+        $salesRole = Role::create(['name' => 'Sales Validation', 'slug' => 'sales-validation']);
+        $sales = User::factory()->create(['is_active' => true]);
+        $sales->roles()->attach($salesRole);
+
+        $this->actingAs($admin)->put(route('settings.validation.update'), [
+            'role_id' => $salesRole->id,
+            'opportunity_product_photo_required' => '1',
+            'customer_legal_name_required' => '0',
+            'customer_npwp_required' => '0',
+        ])->assertRedirect();
+
+        $this->assertTrue(\App\Models\SystemSetting::bool('opportunity_product_photo_required', true, $sales));
+        $this->assertFalse(\App\Models\SystemSetting::bool('opportunity_product_photo_required'));
     }
 
     private function customer(array $overrides = []): Customer

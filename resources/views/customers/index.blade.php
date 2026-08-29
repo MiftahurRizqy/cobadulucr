@@ -4,7 +4,6 @@
 @section('page-actions')
 <div class="flex gap-2">
     @if(auth()->user()->canAccess('leads.view'))<a href="{{ route('leads.create') }}" class="btn-secondary">+ Lead</a>@endif
-    <a href="{{ route('customers.create') }}" class="btn-primary">+ Customer</a>
 </div>
 @endsection
 @section('content')
@@ -35,6 +34,8 @@
 </div>
 
 @php
+    $legalNameRequired = \App\Models\SystemSetting::bool('customer_legal_name_required', true, auth()->user());
+    $npwpRequired = \App\Models\SystemSetting::bool('customer_npwp_required', true, auth()->user());
     $customerFilterCount = collect([
         request('status'),
         request('area_id'),
@@ -114,7 +115,7 @@
                     <th class="w-[170px] border-r border-slate-200 px-3 py-3">Kontak</th>
                     <th class="w-[145px] border-r border-slate-200 px-3 py-3">Area</th>
                     <th class="w-[155px] border-r border-slate-200 px-3 py-3">Sales</th>
-                    <th class="w-[140px] border-r border-slate-200 px-3 py-3">Tindak lanjut</th>
+                    @if($view === 'prospects')<th class="w-[140px] border-r border-slate-200 px-3 py-3">Tindak lanjut</th>@endif
                     <th class="w-[105px] border-r border-slate-200 px-3 py-3">Status</th>
                     <th class="w-[90px] px-3 py-3 text-center">Aksi</th>
                 </tr>
@@ -143,10 +144,12 @@
                         @php($owner = $isProspect ? $record->owner : $record->salesOwner)
                         <div class="flex min-w-0 items-center gap-2"><span class="grid size-7 shrink-0 place-items-center rounded-full bg-indigo-50 text-[9px] font-extrabold text-indigo-600">{{ $owner?mb_substr($owner->name,0,1):'?' }}</span><span class="truncate text-[11px] font-semibold text-slate-700">{{ $owner?->name ?? 'Belum ditentukan' }}</span></div>
                     </td>
+                    @if($isProspect)
                     <td class="border-r border-slate-100 px-3 py-3 text-[10px] {{ $followUp?->isPast()?'font-bold text-rose-600':'text-slate-500' }}">
-                        {{ $followUp?->translatedFormat('d M Y, H:i') ?? 'Belum dijadwalkan' }}
-                        @if($followUp?->isPast())<div class="mt-0.5 text-[9px]">Terlambat</div>@endif
+                            {{ $followUp?->translatedFormat('d M Y, H:i') ?? 'Belum dijadwalkan' }}
+                            @if($followUp?->isPast())<div class="mt-0.5 text-[9px]">Terlambat</div>@endif
                     </td>
+                    @endif
                     <td class="border-r border-slate-100 px-3 py-3"><span class="inline-flex rounded-full px-2 py-1 text-[10px] font-bold {{ in_array($record->status,['active','converted'])?'bg-emerald-50 text-emerald-700':($record->status === 'pareto'?'bg-violet-50 text-violet-700':(in_array($record->status,['leads_hold','leads_risky','risky'])?'bg-rose-50 text-rose-700':'bg-sky-50 text-sky-700')) }}">{{ $statusLabels[$record->status] ?? ucfirst($record->status) }}</span></td>
                     <td class="px-3 py-3 text-center">
                         @if($isProspect)
@@ -179,8 +182,8 @@
                                             <header class="flex items-start justify-between border-b border-slate-100 px-5 py-4"><div><h3 class="text-sm font-extrabold text-ink">Lengkapi data customer</h3><p class="mt-1 text-xs text-slate-500">{{ $record->company_name }}</p></div><button type="button" @click="convertOpen=false" class="grid size-9 place-items-center rounded-full bg-slate-100 text-slate-500" aria-label="Tutup">×</button></header>
                                             <div class="space-y-4 p-5">
                                                 <p class="rounded-xl bg-sky-50 px-4 py-3 text-xs leading-relaxed text-sky-700">Nama legal dan NPWP diperlukan agar identitas customer valid. Dokumen pendukung dapat ditambahkan bila tersedia.</p>
-                                                <div><label class="label">Nama legal *</label><input class="field" name="legal_name" value="{{ old('legal_name') }}" placeholder="Sesuai dokumen perusahaan" required></div>
-                                                <div><label class="label">NPWP *</label><input class="field" name="npwp" value="{{ old('npwp') }}" placeholder="Masukkan nomor NPWP" required></div>
+                                                <div><label class="label">Nama legal{{ $legalNameRequired ? ' *' : ' (opsional)' }}</label><input class="field" name="legal_name" value="{{ old('legal_name') }}" placeholder="Sesuai dokumen perusahaan" @required($legalNameRequired)></div>
+                                                <div><label class="label">NPWP{{ $npwpRequired ? ' *' : ' (opsional)' }}</label><input class="field" name="npwp" value="{{ old('npwp') }}" placeholder="Masukkan nomor NPWP" @required($npwpRequired)></div>
                                                 <div><label class="label">Dokumen pendukung</label><input class="field py-2.5" type="file" name="supporting_document" accept=".pdf,.jpg,.jpeg,.png,.webp"><p class="mt-1 text-[10px] text-slate-400">Opsional · PDF, JPG, PNG, atau WebP · maksimal 10 MB</p></div>
                                             </div>
                                             <footer class="flex justify-end gap-2 border-t border-slate-100 bg-slate-50 px-5 py-4"><button type="button" @click="convertOpen=false" class="btn-secondary">Batal</button><button class="btn-primary">Konversi menjadi customer</button></footer>
@@ -195,7 +198,7 @@
                     </td>
                 </tr>
             @empty
-                <tr><td colspan="7" class="p-14 text-center"><div class="text-sm font-bold text-slate-600">{{ $view==='prospects'?'Belum ada lead':'Customer tidak ditemukan' }}</div><div class="mt-1 text-xs text-slate-400">{{ $view==='prospects'?'Tambahkan lead pertama Anda.':'Coba ubah kata pencarian atau filter.' }}</div></td></tr>
+                <tr><td colspan="{{ $view === 'prospects' ? 7 : 6 }}" class="p-14 text-center"><div class="text-sm font-bold text-slate-600">{{ $view==='prospects'?'Belum ada lead':'Customer tidak ditemukan' }}</div><div class="mt-1 text-xs text-slate-400">{{ $view==='prospects'?'Tambahkan lead pertama Anda.':'Coba ubah kata pencarian atau filter.' }}</div></td></tr>
             @endforelse
             </tbody>
         </table>

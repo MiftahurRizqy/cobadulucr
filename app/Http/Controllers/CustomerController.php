@@ -22,7 +22,10 @@ class CustomerController extends Controller
         $search = trim((string) $request->search);
 
         $prospectCount = $request->user()->canAccess('leads.view')
-            ? Lead::query()->visibleTo($request->user())->whereNotIn('status', ['converted', 'leads_hold'])->count()
+            ? Lead::query()->visibleTo($request->user())
+                ->whereNotIn('status', ['converted', 'leads_hold'])
+                ->whereDoesntHave('convertedCustomer')
+                ->count()
             : 0;
         $customerCount = Customer::query()->visibleTo($request->user())->count();
         $areas = Area::query()->orderBy('name')->get(['id', 'name']);
@@ -33,7 +36,10 @@ class CustomerController extends Controller
                 ->whereIn('id', Lead::query()->visibleTo($request->user())->select('owner_id'))
                 ->orderBy('name')
                 ->get(['id', 'name']);
-            $records = Lead::query()->visibleTo($request->user())->with(['owner', 'area'])
+            $records = Lead::query()->visibleTo($request->user())
+                ->whereNotIn('status', ['converted', 'leads_hold'])
+                ->whereDoesntHave('convertedCustomer')
+                ->with(['owner', 'area'])
                 ->when($search, fn ($q, $s) => $q->where(fn ($q) => $q
                     ->where('company_name', 'like', "%$s%")
                     ->orWhere('contact_name', 'like', "%$s%")

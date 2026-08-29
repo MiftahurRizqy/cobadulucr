@@ -32,15 +32,17 @@ class DatabaseSeeder extends Seeder
             'tasks' => ['view', 'create', 'update'],
             'approvals' => ['view', 'create', 'decide'],
             'reports' => ['view'],
+            'kpi' => ['view'],
             'admin' => ['manage'],
-        ])->flatMap(fn ($actions, $module) => collect($actions)->map(fn ($action) => Permission::create(['module' => $module, 'action' => $action, 'key' => "$module.$action", 'label' => ucfirst($action).' '.ucfirst($module)])));
+        ])->flatMap(fn ($actions, $module) => collect($actions)->map(fn ($action) => Permission::updateOrCreate(['key' => "$module.$action"], ['module' => $module, 'action' => $action, 'label' => ucfirst($action).' '.ucfirst($module)])));
 
         $roles = collect([
-            'master_admin' => ['dashboard', 'leads', 'customers', 'opportunities', 'activities', 'tasks', 'approvals', 'reports', 'admin'],
-            'sales' => ['dashboard', 'leads', 'customers', 'opportunities', 'activities', 'tasks', 'approvals'],
-            'csa' => ['dashboard', 'leads', 'customers', 'opportunities', 'activities', 'tasks', 'reports'],
-            'sales_supervisor' => ['dashboard', 'leads', 'customers', 'opportunities', 'activities', 'tasks', 'approvals', 'reports'],
-            'sales_manager' => ['dashboard', 'leads', 'customers', 'opportunities', 'activities', 'tasks', 'approvals', 'reports'],
+            'master_admin' => ['dashboard', 'leads', 'customers', 'opportunities', 'activities', 'tasks', 'approvals', 'reports', 'kpi', 'admin'],
+            'sales' => ['dashboard', 'leads', 'customers', 'opportunities', 'activities', 'tasks', 'approvals', 'kpi'],
+            'telesales' => ['dashboard', 'leads', 'customers', 'opportunities', 'activities', 'tasks', 'approvals', 'kpi'],
+            'csa' => ['dashboard', 'leads', 'customers', 'opportunities', 'activities', 'tasks', 'reports', 'kpi'],
+            'sales_supervisor' => ['dashboard', 'leads', 'customers', 'opportunities', 'activities', 'tasks', 'approvals', 'reports', 'kpi'],
+            'sales_manager' => ['dashboard', 'leads', 'customers', 'opportunities', 'activities', 'tasks', 'approvals', 'reports', 'kpi'],
             'purchasing' => ['dashboard', 'customers', 'tasks', 'approvals'],
             'finance' => ['dashboard', 'customers', 'tasks', 'approvals', 'reports'],
             'warehouse' => ['dashboard', 'customers', 'tasks', 'activities'],

@@ -12,7 +12,7 @@ class Customer extends Model
     use Auditable;
 
     protected $fillable = [
-        'customer_id', 'converted_from_lead_id', 'company_name', 'brand_name', 'legal_name',
+        'customer_id', 'converted_from_lead_id', 'became_customer_at', 'company_name', 'brand_name', 'legal_name',
         'npwp', 'address', 'shipping_address', 'billing_address', 'phone', 'email', 'city',
         'area_id', 'business_unit_id', 'department_id', 'sales_owner_id', 'supervisor_id',
         'manager_id', 'business_type', 'product_interest', 'product_interests', 'estimated_need', 'estimated_need_unit', 'status', 'credit_limit',
@@ -23,7 +23,7 @@ class Customer extends Model
     protected function casts(): array
     {
         return [
-            'tags' => 'array', 'last_order_at' => 'datetime', 'last_activity_at' => 'datetime',
+            'tags' => 'array', 'became_customer_at' => 'datetime', 'last_order_at' => 'datetime', 'last_activity_at' => 'datetime',
             'next_follow_up_at' => 'datetime', 'credit_limit' => 'decimal:2',
             'estimated_monthly_purchase' => 'decimal:2',
             'estimated_need' => 'integer', 'product_interests' => 'array',
@@ -32,7 +32,10 @@ class Customer extends Model
 
     protected static function booted(): void
     {
-        static::creating(fn (Customer $customer) => $customer->customer_id ??= 'CUST-'.now()->format('ym').'-'.str_pad((string) (self::max('id') + 1), 5, '0', STR_PAD_LEFT));
+        static::creating(function (Customer $customer) {
+            $customer->customer_id ??= 'CUST-'.now()->format('ym').'-'.str_pad((string) (self::max('id') + 1), 5, '0', STR_PAD_LEFT);
+            $customer->became_customer_at ??= now();
+        });
     }
 
     public function salesOwner() { return $this->belongsTo(User::class, 'sales_owner_id'); }

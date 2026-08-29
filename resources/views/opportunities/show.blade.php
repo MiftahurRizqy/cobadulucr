@@ -5,6 +5,9 @@
 <div class="hidden gap-2 md:flex"><a href="{{ route('activities.create',['customer'=>$opportunity->customer_id,'opportunity'=>$opportunity]) }}" class="btn-primary">+ Catat aktivitas</a><a href="{{ route('tasks.create',['customer'=>$opportunity->customer_id,'opportunity'=>$opportunity]) }}" class="btn-secondary">+ Task</a></div>
 @endsection
 @section('content')
+@php
+    $productPhotoRequired = \App\Models\SystemSetting::bool('opportunity_product_photo_required', true, auth()->user());
+@endphp
 <div class="card overflow-hidden">
     <div class="flex flex-col gap-4 border-b border-slate-100 px-5 py-4 lg:flex-row lg:items-start lg:justify-between">
         <div class="min-w-0"><div class="mb-2 flex flex-wrap items-center gap-2"><span class="badge border" style="color:{{ $opportunity->stage->color }};border-color:{{ $opportunity->stage->color }}40;background:{{ $opportunity->stage->color }}10"><span class="size-1.5 rounded-full" style="background:{{ $opportunity->stage->color }}"></span>{{ $opportunity->stage->name }}</span><span class="badge {{ $opportunity->priority === 'high' ? 'bg-rose-50 text-rose-600 ring-1 ring-rose-100' : ($opportunity->priority === 'medium' ? 'bg-amber-50 text-amber-700 ring-1 ring-amber-100' : 'bg-sky-50 text-sky-600 ring-1 ring-sky-100') }}">Priority {{ ['low'=>'Low','medium'=>'Medium','high'=>'High'][$opportunity->priority] ?? ucfirst($opportunity->priority) }}</span></div><a href="{{ route('customers.show',$opportunity->customer) }}" class="text-xs font-bold text-brand-600 hover:text-brand-700">{{ $opportunity->customer->company_name }} →</a></div>
@@ -78,12 +81,11 @@
                 $infoProducts = $opportunity->items;
                 $targetTotal = $infoProducts->sum(fn ($item) => (float) $item->quantity * (float) ($item->target_price ?? 0));
                 $offeredTotal = $infoProducts->sum(fn ($item) => (float) ($item->subtotal ?? 0));
-                $sourceLabels = ['website'=>'Website','whatsapp'=>'WhatsApp','referral'=>'Referral','sales_visit'=>'Sales Visit','event'=>'Event','ads'=>'Ads','social_media'=>'Social Media','marketplace'=>'Marketplace','database'=>'Database','telemarketing'=>'Telemarketing','walk_in'=>'Walk In','other'=>'Other'];
             @endphp
             @if(false)
             <div class="grid gap-x-8 gap-y-5 p-5 sm:grid-cols-2 lg:grid-cols-3">
                 <div><div class="text-[9px] font-extrabold uppercase tracking-wider text-slate-400">Customer</div><div class="mt-1.5 text-xs font-semibold text-slate-700">{{ $opportunity->customer->company_name }}</div></div>
-                <div><div class="text-[9px] font-extrabold uppercase tracking-wider text-slate-400">Total target harga</div><div class="mt-1.5 text-xs font-semibold text-slate-700">{{ $targetTotal > 0 ? 'Rp '.number_format($targetTotal,0,',','.') : 'Belum diatur' }}</div></div>
+                <div><div class="text-[9px] font-extrabold uppercase tracking-wider text-slate-400">Nilai target opportunity</div><div class="mt-1.5 text-xs font-semibold text-slate-700">{{ $targetTotal > 0 ? 'Rp '.number_format($targetTotal,0,',','.') : 'Belum diatur' }}</div></div>
                 <div><div class="text-[9px] font-extrabold uppercase tracking-wider text-slate-400">Total harga penawaran</div><div class="mt-1.5 text-xs font-semibold text-slate-700">{{ $offeredTotal > 0 ? 'Rp '.number_format($offeredTotal,0,',','.') : 'Belum diatur' }}</div></div>
 
                 <div class="sm:col-span-2 lg:col-span-3">
@@ -98,7 +100,7 @@
                     </div>
                 </div>
 
-                @foreach([['Supplier saat ini',$opportunity->current_supplier],['Kompetitor',$opportunity->competitor],['Sumber lead',($sourceLabels[$opportunity->lead_source] ?? $opportunity->lead_source)]] as [$label,$value])
+                @foreach([['Supplier saat ini',$opportunity->current_supplier],['Kompetitor',$opportunity->competitor]] as [$label,$value])
                     <div><div class="text-[9px] font-extrabold uppercase tracking-wider text-slate-400">{{ $label }}</div><div class="mt-1.5 text-xs font-semibold text-slate-700">{{ $value ?: 'Belum diisi' }}</div></div>
                 @endforeach
             </div>
@@ -106,7 +108,7 @@
             @endif
 
             <div class="grid gap-x-8 gap-y-4 p-5 sm:grid-cols-2 lg:grid-cols-4">
-                @foreach([['Customer',$opportunity->customer->company_name],['Supplier saat ini',$opportunity->current_supplier],['Kompetitor',$opportunity->competitor],['Sumber lead',($sourceLabels[$opportunity->lead_source] ?? $opportunity->lead_source)]] as [$label,$value])
+                @foreach([['Customer',$opportunity->customer->company_name],['Supplier saat ini',$opportunity->current_supplier],['Kompetitor',$opportunity->competitor]] as [$label,$value])
                     <div>
                         <div class="text-[9px] font-extrabold uppercase tracking-wider text-slate-400">{{ $label }}</div>
                         <div class="mt-1.5 text-xs font-semibold text-slate-700">{{ $value ?: 'Belum diisi' }}</div>
@@ -127,7 +129,6 @@
                         <div class="grid gap-4 p-5 sm:grid-cols-2">
                             <label class="block"><span class="label">Supplier saat ini</span><input name="current_supplier" value="{{ old('current_supplier', $opportunity->current_supplier) }}" class="field mt-2" placeholder="Nama supplier yang digunakan"></label>
                             <label class="block"><span class="label">Kompetitor</span><input name="competitor" value="{{ old('competitor', $opportunity->competitor) }}" class="field mt-2" placeholder="Nama kompetitor jika ada"></label>
-                            <label class="block sm:col-span-2"><span class="label">Sumber lead</span><select name="lead_source" class="field mt-2"><option value="">Pilih sumber lead</option>@foreach(['website'=>'Website','whatsapp'=>'WhatsApp','referral'=>'Referral','sales_visit'=>'Sales Visit','event'=>'Event','ads'=>'Ads','social_media'=>'Social Media','marketplace'=>'Marketplace','database'=>'Database','telemarketing'=>'Telemarketing','walk_in'=>'Walk In','other'=>'Other'] as $value => $label)<option value="{{ $value }}" @selected(old('lead_source', $opportunity->lead_source) === $value)>{{ $label }}</option>@endforeach</select></label>
                         </div>
                         <div class="flex justify-end gap-2 border-t border-slate-100 bg-slate-50 px-5 py-4">
                             <button type="button" @click="editGeneralInfo=false" class="btn-secondary">Batal</button>
@@ -150,7 +151,7 @@
             </div>
             <div class="overflow-x-auto">
                 <table class="w-full min-w-[920px] text-left text-xs">
-                    <thead class="table-head"><tr><th class="px-5 py-3">Produk</th><th class="px-4 py-3 text-right">Est. Qty/Bulan</th><th class="px-4 py-3 text-right">Target Harga</th><th class="px-4 py-3 text-right">Harga penawaran</th><th class="px-4 py-3 text-right">Subtotal</th><th class="px-5 py-3">Status barang</th><th class="w-20 px-4 py-3 text-center">Aksi</th></tr></thead>
+                    <thead class="table-head"><tr><th class="px-5 py-3">Produk</th><th class="px-4 py-3 text-right">Est. Qty/Bulan</th><th class="px-4 py-3 text-right">Target Harga per UOM</th><th class="px-4 py-3 text-right">Harga Penawaran per UOM</th><th class="px-4 py-3 text-right">Subtotal</th><th class="px-5 py-3">Status barang</th><th class="w-20 px-4 py-3 text-center">Aksi</th></tr></thead>
                     <tbody class="divide-y divide-slate-100">
                         @forelse($opportunity->items as $item)
                             <tr x-data="{ editPrice: false }">
@@ -180,13 +181,13 @@
                     @csrf
                     <div class="flex items-center justify-between border-b border-slate-100 px-5 py-4"><div><h3 class="section-title">Tambah produk</h3><p class="mt-1 text-[10px] text-slate-400">Tambahkan kebutuhan produk customer.</p></div><button type="button" @click="addProduct=false" class="grid size-9 place-items-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200" aria-label="Tutup"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 3l10 10M13 3L3 13"/></svg></button></div>
                     <div class="grid gap-4 p-5 sm:grid-cols-2">
-                        <div class="sm:col-span-2"><label class="label">Nama produk *</label><input name="product_name" class="field" placeholder="Contoh: Paper bowl 12 oz" required></div>
+                        <div class="sm:col-span-2"><label class="label">Nama produk *</label><input name="product_name" class="field" placeholder="Contoh: Paper bowl 12 oz" required></div><div><label class="label">Market *</label><select name="market_segment" class="field" required><option value="drink">Drink Market</option><option value="food">Food Market</option></select></div>
                         <div><label class="label">Est. Qty/Bulan *</label><input name="quantity" type="number" min="1" value="1" class="field" required></div>
                         <div><label class="label">UOM *</label><select name="quantity_unit" class="field">@foreach(\App\Models\Opportunity::QUANTITY_UNITS as $value => $label)<option value="{{ $value }}">{{ $label }}</option>@endforeach</select></div>
-                        <div><label class="label">Target Harga</label><div class="relative"><span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400">Rp</span><input name="target_price" data-money inputmode="numeric" class="field !pl-9" placeholder="0"></div></div>
-                        <div><label class="label">Harga penawaran</label><div class="relative"><span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400">Rp</span><input name="unit_price" data-money inputmode="numeric" class="field !pl-9" placeholder="0"></div></div>
+                        <div><label class="label">Target Harga per UOM</label><div class="relative"><span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400">Rp</span><input name="target_price" data-money inputmode="numeric" class="field !pl-9" placeholder="0"></div></div>
+                        <div><label class="label">Harga penawaran per UOM</label><div class="relative"><span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400">Rp</span><input name="unit_price" data-money inputmode="numeric" class="field !pl-9" placeholder="0"></div><p class="mt-1 text-[10px] text-slate-400">Isi harga untuk 1 satuan sesuai UOM produk, bukan harga total.</p></div>
                         <p class="sm:col-span-2 text-[10px] text-slate-400">Produk baru otomatis berstatus Diproses.</p>
-                        <div class="sm:col-span-2 border-t border-slate-200 pt-4"><label class="label">Foto produk *</label><div class="flex items-start gap-3"><img x-show="photoPreview" x-cloak :src="photoPreview" alt="Preview foto produk" class="size-20 shrink-0 rounded-lg border border-slate-200 object-cover"><input type="file" name="photo" accept="image/jpeg,image/png,image/webp" @change="previewPhoto($event)" class="field file:mr-3 file:border-0 file:bg-transparent file:text-xs file:font-bold file:text-brand-600" required></div><p class="mt-1 text-[10px] text-slate-400">Preview akan tampil setelah foto dipilih. JPG, PNG, atau WebP maksimal 5 MB; lokasi tidak digunakan.</p></div>
+                        <div class="sm:col-span-2 border-t border-slate-200 pt-4"><label class="label">Foto produk{{ $productPhotoRequired ? ' *' : ' (opsional)' }}</label><div class="flex items-start gap-3"><img x-show="photoPreview" x-cloak :src="photoPreview" alt="Preview foto produk" class="size-20 shrink-0 rounded-lg border border-slate-200 object-cover"><input type="file" name="photo" accept="image/jpeg,image/png,image/webp" @change="previewPhoto($event)" class="field file:mr-3 file:border-0 file:bg-transparent file:text-xs file:font-bold file:text-brand-600" @required($productPhotoRequired)></div><p class="mt-1 text-[10px] text-slate-400">Preview akan tampil setelah foto dipilih. JPG, PNG, atau WebP maksimal 5 MB; lokasi tidak digunakan.</p></div>
                     </div>
                     <div class="flex justify-end gap-2 border-t border-slate-100 bg-slate-50 px-5 py-4"><button type="button" @click="addProduct=false" class="btn-secondary">Batal</button><button class="btn-primary">Tambah produk</button></div>
                 </form>
@@ -197,12 +198,12 @@
                     <form method="POST" action="{{ route('opportunities.items.update', [$opportunity, $item]) }}" enctype="multipart/form-data" x-data="{ photoPreview: @js($item->photo_path ? Storage::disk('public')->url($item->photo_path) : null), previewPhoto(event) { this.photoPreview = event.target.files[0] ? URL.createObjectURL(event.target.files[0]) : null } }" class="w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl">@csrf @method('PATCH')
                         <div class="flex items-center justify-between border-b border-slate-100 px-5 py-4"><div><h3 class="section-title">Edit produk</h3><p class="mt-1 text-[10px] text-slate-400">Perbarui informasi {{ $item->product_name }}.</p></div><button type="button" @click="editing=null" class="grid size-9 place-items-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200" aria-label="Tutup"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 3l10 10M13 3L3 13"/></svg></button></div>
                         <div class="grid gap-4 p-5 sm:grid-cols-2">
-                            <div class="sm:col-span-2"><label class="label">Nama produk *</label><input name="product_name" class="field" value="{{ $item->product_name }}" required></div>
+                            <div class="sm:col-span-2"><label class="label">Nama produk *</label><input name="product_name" class="field" value="{{ $item->product_name }}" required></div><div><label class="label">Market *</label><select name="market_segment" class="field" required><option value="drink" @selected($item->market_segment==='drink')>Drink Market</option><option value="food" @selected($item->market_segment==='food')>Food Market</option></select></div>
                             <div><label class="label">Est. Qty/Bulan *</label><input name="quantity" type="number" min="1" class="field" value="{{ $item->quantity }}" required></div>
                             <div><label class="label">UOM *</label><select name="quantity_unit" class="field">@foreach(\App\Models\Opportunity::QUANTITY_UNITS as $value => $label)<option value="{{ $value }}" @selected($item->quantity_unit === $value)>{{ $label }}</option>@endforeach</select></div>
-                            <div><label class="label">Target Harga</label><div class="relative"><span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400">Rp</span><input name="target_price" data-money inputmode="numeric" class="field !pl-9" value="{{ number_format((float) $item->target_price,0,',','.') }}"></div></div>
-                            <div><label class="label">Harga penawaran</label><div class="relative"><span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400">Rp</span><input name="unit_price" data-money inputmode="numeric" class="field !pl-9" value="{{ number_format((float) $item->unit_price,0,',','.') }}"></div></div>
-                            <div class="sm:col-span-2 border-t border-slate-200 pt-4"><label class="label">Foto produk</label><div class="flex items-start gap-3"><img x-show="photoPreview" :src="photoPreview" alt="Preview foto {{ $item->product_name }}" class="size-20 shrink-0 rounded-lg border border-slate-200 object-cover"><input type="file" name="photo" accept="image/jpeg,image/png,image/webp" @change="previewPhoto($event)" class="field file:mr-3 file:border-0 file:bg-transparent file:text-xs file:font-bold file:text-brand-600" @required(!$item->photo_path)></div></div>
+                            <div><label class="label">Target Harga per UOM</label><div class="relative"><span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400">Rp</span><input name="target_price" data-money inputmode="numeric" class="field !pl-9" value="{{ number_format((float) $item->target_price,0,',','.') }}"></div></div>
+                            <div><label class="label">Harga penawaran per UOM</label><div class="relative"><span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400">Rp</span><input name="unit_price" data-money inputmode="numeric" class="field !pl-9" value="{{ number_format((float) $item->unit_price,0,',','.') }}"></div><p class="mt-1 text-[10px] text-slate-400">Isi harga untuk 1 satuan sesuai UOM produk, bukan harga total.</p></div>
+                            <div class="sm:col-span-2 border-t border-slate-200 pt-4"><label class="label">Foto produk{{ $productPhotoRequired && !$item->photo_path ? ' *' : ' (opsional)' }}</label><div class="flex items-start gap-3"><img x-show="photoPreview" :src="photoPreview" alt="Preview foto {{ $item->product_name }}" class="size-20 shrink-0 rounded-lg border border-slate-200 object-cover"><input type="file" name="photo" accept="image/jpeg,image/png,image/webp" @change="previewPhoto($event)" class="field file:mr-3 file:border-0 file:bg-transparent file:text-xs file:font-bold file:text-brand-600" @required($productPhotoRequired && !$item->photo_path)></div></div>
                         </div>
                         <div class="flex justify-end gap-2 border-t border-slate-100 bg-slate-50 px-5 py-4"><button type="button" @click="editing=null" class="btn-secondary">Batal</button><button class="btn-primary">Simpan perubahan</button></div>
                     </form>
@@ -263,12 +264,13 @@
                             <div class="grid items-end gap-3 rounded-xl border border-slate-200 bg-slate-50/60 p-4 sm:grid-cols-[1fr_160px]">
                                 <div>
                                     <div class="text-xs font-extrabold text-ink">{{ $item->product_name }}</div>
-                                    <div class="mt-1 text-[10px] text-slate-400">{{ number_format($item->quantity,0,',','.') }} {{ \App\Models\Opportunity::QUANTITY_UNITS[$item->quantity_unit] ?? ucfirst($item->quantity_unit) }} · Target customer {{ $item->target_price !== null ? 'Rp '.number_format($item->target_price,0,',','.') : 'belum diisi' }}</div>
+                                    <div class="mt-1 text-[10px] text-slate-400">{{ number_format($item->quantity,0,',','.') }} {{ \App\Models\Opportunity::QUANTITY_UNITS[$item->quantity_unit] ?? ucfirst($item->quantity_unit) }} · Target harga per UOM {{ $item->target_price !== null ? 'Rp '.number_format($item->target_price,0,',','.') : 'belum diisi' }}</div>
                                 </div>
                                 <div>
                                     <input type="hidden" name="items[{{ $loop->index }}][id]" value="{{ $item->id }}">
-                                    <label class="label">Harga penawaran</label>
+                                    <label class="label">Harga penawaran per UOM</label>
                                     <div class="relative"><span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400">Rp</span><input type="text" inputmode="numeric" data-money class="field !pl-9" name="items[{{ $loop->index }}][unit_price]" value="{{ number_format((float) $item->unit_price,0,',','.') }}" required></div>
+                                    <p class="mt-1 text-[10px] text-slate-400">Harga untuk 1 satuan sesuai UOM produk.</p>
                                 </div>
                             </div>
                         @endforeach

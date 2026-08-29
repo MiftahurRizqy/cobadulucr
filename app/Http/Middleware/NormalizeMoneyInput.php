@@ -17,6 +17,7 @@ class NormalizeMoneyInput
         'offered_price',
         'previous_value',
         'requested_value',
+        'sales_target',
     ];
 
     public function handle(Request $request, Closure $next): Response

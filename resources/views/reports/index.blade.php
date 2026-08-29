@@ -1,28 +1,48 @@
 @extends('layouts.app')
-@section('title','Laporan & Analitik')
-@section('eyebrow','Laporan / Performa')
+@section('title','Laporan Leads')
+@section('eyebrow','Laporan / Leads')
+
+@section('page-actions')
+<div class="relative" x-data="{ periodOpen: false }" @click.outside="periodOpen = false">
+    <button type="button" class="btn-secondary h-10 min-w-44 justify-between gap-3 bg-white" @click="periodOpen = !periodOpen">
+        <span class="flex items-center gap-2">
+            <svg class="size-4 text-brand-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg>
+            <span class="text-left"><span class="block text-[9px] font-extrabold uppercase tracking-wider text-slate-400">Periode</span><span class="block text-xs font-extrabold text-slate-700">{{ $periodLabel }}</span></span>
+        </span>
+        <svg class="size-3.5 text-slate-400 transition" :class="periodOpen && 'rotate-180'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+    </button>
+    <div x-show="periodOpen" x-cloak class="absolute right-0 z-50 mt-2 w-[360px] max-w-[calc(100vw-2rem)] rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl shadow-slate-900/10">
+        <div class="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Pilih cepat</div>
+        <div class="mt-2 grid grid-cols-3 gap-2">
+            <a href="{{ route('reports.index', array_merge(request()->except(['start_date','end_date','report_month','period','date_from','date_to','page']), ['start_date'=>now()->subMonths(3)->addDay()->toDateString(),'end_date'=>now()->toDateString()])) }}" class="rounded-lg bg-slate-50 px-3 py-2 text-center text-[10px] font-extrabold text-slate-600 hover:bg-brand-50 hover:text-brand-700">3 bulan</a>
+            <a href="{{ route('reports.index', array_merge(request()->except(['start_date','end_date','report_month','period','date_from','date_to','page']), ['start_date'=>now()->startOfYear()->toDateString(),'end_date'=>now()->toDateString()])) }}" class="rounded-lg bg-slate-50 px-3 py-2 text-center text-[10px] font-extrabold text-slate-600 hover:bg-brand-50 hover:text-brand-700">Tahun ini</a>
+            <a href="{{ route('reports.index', array_merge(request()->except(['start_date','end_date','report_month','period','date_from','date_to','page']), ['start_date'=>now()->subYear()->startOfYear()->toDateString(),'end_date'=>now()->subYear()->endOfYear()->toDateString()])) }}" class="rounded-lg bg-slate-50 px-3 py-2 text-center text-[10px] font-extrabold text-slate-600 hover:bg-brand-50 hover:text-brand-700">Tahun lalu</a>
+        </div>
+        <form method="GET" class="mt-4 border-t border-slate-100 pt-4">
+            @foreach(request()->except(['start_date','end_date','report_month','period','date_from','date_to','page']) as $name=>$value) @if(is_scalar($value))<input type="hidden" name="{{ $name }}" value="{{ $value }}">@endif @endforeach
+            <div class="grid grid-cols-2 gap-3">
+                <label><span class="mb-1.5 block text-[10px] font-bold text-slate-500">Dari tanggal</span><input type="date" name="start_date" value="{{ $dateFrom }}" max="{{ now()->toDateString() }}" class="field h-10 w-full text-xs" required></label>
+                <label><span class="mb-1.5 block text-[10px] font-bold text-slate-500">Sampai tanggal</span><input type="date" name="end_date" value="{{ $dateTo }}" max="{{ now()->toDateString() }}" class="field h-10 w-full text-xs" required></label>
+            </div>
+            <button class="btn-primary mt-3 h-10 w-full">Terapkan periode</button>
+        </form>
+    </div>
+</div>
+@endsection
+
 @section('content')
 @php
-    $conversionView = request('view') === 'conversion';
+    $conversionView = true;
     $totalOutcome = $wonCount + $lostCount;
     $winRate = $totalOutcome > 0 ? round(($wonCount / $totalOutcome) * 100) : 0;
 @endphp
 
 <div class="space-y-5">
-    <div class="inline-flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
-        <a href="{{ route('reports.index') }}" class="rounded-lg px-4 py-2 text-xs font-bold transition {{ !$conversionView ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50 hover:text-ink' }}">
-            Ringkasan penjualan
-        </a>
-        <a href="{{ route('reports.index', ['view' => 'conversion']) }}" class="rounded-lg px-4 py-2 text-xs font-bold transition {{ $conversionView ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50 hover:text-ink' }}">
-            Konversi Customer & Lead
-        </a>
-    </div>
-
     @if(!$conversionView)
         <section>
             <div class="mb-4">
                 <h2 class="section-title">Sales Dashboard</h2>
-                <p class="mt-1 text-xs text-slate-500">Ringkasan performa penjualan dan aktivitas tim.</p>
+                <p class="mt-1 text-xs text-slate-500">Ringkasan Closed Won {{ $salesFrom->translatedFormat('F Y') }} dan aktivitas tim.</p>
             </div>
             <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
                 @foreach([
@@ -44,11 +64,11 @@
         <div class="grid gap-6 xl:grid-cols-[1.2fr_.8fr]">
             <section class="card relative z-30 overflow-visible">
                 <div class="border-b border-slate-100 px-5 py-4">
-                    <h3 class="section-title">Performance by owner</h3>
+                    <h3 class="section-title">Closed Won by sales</h3>
                 </div>
                 <div class="overflow-x-auto">
                     <table class="w-full min-w-[560px] text-left">
-                        <thead class="table-head"><tr><th class="px-5 py-3">Owner</th><th class="px-4 py-3 text-center">Opportunity</th><th class="px-5 py-3 text-right">Pipeline value</th></tr></thead>
+                        <thead class="table-head"><tr><th class="px-5 py-3">Sales</th><th class="px-4 py-3 text-center">Closed Won</th><th class="px-5 py-3 text-right">Won value</th></tr></thead>
                         <tbody class="divide-y divide-slate-100">
                             @forelse($byOwner as $ownerSummary)
                                 <tr class="transition hover:bg-indigo-50/40"><td class="px-5 py-4 text-sm font-bold text-ink">@if($ownerSummary->owner)<a href="{{ route('opportunities.index', ['owner'=>$ownerSummary->owner_id]) }}" class="hover:text-indigo-700">{{ $ownerSummary->owner->name }} →</a>@else Belum ditentukan @endif</td><td class="px-4 py-4 text-center text-sm text-slate-600">{{ number_format($ownerSummary->total) }}</td><td class="px-5 py-4 text-right text-sm font-extrabold text-ink">Rp {{ number_format((float) $ownerSummary->value,0,',','.') }}</td></tr>
@@ -75,10 +95,10 @@
             </section>
         </div>
     @else
-        <div x-data="{ period: @js($period), exportOpen: false, filterOpen: false }" @keydown.escape.window="filterOpen = false" class="relative flex flex-col gap-5">
+        <div x-data="{ exportOpen: false, filterOpen: false }" @keydown.escape.window="filterOpen = false" class="relative flex flex-col gap-5">
             <section class="card relative z-30 overflow-visible">
                 <div class="flex flex-col gap-3 border-b border-slate-100 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
-                    <div><h2 class="section-title">Konversi Customer & Lead</h2><p class="mt-1 text-xs text-slate-500">Pantau Leads Adds, lead masuk, dan konversi lead menjadi customer.</p></div>
+                    <div><h2 class="section-title">Performa Leads</h2><p class="mt-1 text-xs text-slate-500">Pantau jumlah lead masuk dan perkembangannya menjadi customer.</p></div>
                     <button type="button" @click="exportOpen = true" class="btn-secondary gap-2">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
                         Export laporan
@@ -86,7 +106,6 @@
                 </div>
                 @php
                     $reportFilterCount = collect([
-                        request('period', 'all') !== 'all' ? request('period') : null,
                         request('owner_id'), request('area_id'), request('business_type'),
                         request('source'), request('lead_status'),
                         request('conversion_scope'),
@@ -102,6 +121,8 @@
                 @endphp
                 <form method="GET" class="relative p-4">
                     <input type="hidden" name="view" value="conversion">
+                    <input type="hidden" name="start_date" value="{{ $dateFrom }}">
+                    <input type="hidden" name="end_date" value="{{ $dateTo }}">
                     <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
                         <div class="relative min-w-0 flex-1">
                             <svg class="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="9" r="6"/><path d="m14 14 4 4"/></svg>
@@ -118,7 +139,6 @@
                     <div x-show="filterOpen" x-cloak x-transition.origin.top.right @click.outside="filterOpen = false" class="absolute right-4 top-[68px] z-50 w-[min(920px,calc(100%-32px))] rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
                         <div class="mb-4 flex items-start justify-between gap-4"><div><h3 class="section-title">Filter laporan konversi</h3><p class="mt-1 text-xs text-slate-500">Pilih filter yang diperlukan saja.</p></div><button type="button" @click="filterOpen=false" class="grid size-9 place-items-center rounded-full bg-slate-100 text-slate-500" aria-label="Tutup"><svg class="size-4" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4l12 12M16 4 4 16"/></svg></button></div>
                         <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                            <div x-data="{ open: false }" class="relative"><label class="label">Periode</label><input type="hidden" name="period" :value="period"><button type="button" class="field flex items-center justify-between text-left" @click="open=!open"><span>@foreach(['all'=>'Semua waktu','today'=>'Hari ini','week'=>'Minggu ini','month'=>'Bulan ini','last_3_months'=>'3 bulan terakhir','year'=>'Tahun ini','custom'=>'Pilih tanggal'] as $value=>$label)<span x-show="period === '{{ $value }}'" @if($period !== $value) x-cloak @endif>{{ $label }}</span>@endforeach</span><svg class="size-4 text-slate-400" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m5 7.5 5 5 5-5"/></svg></button><div x-show="open" x-cloak @click.outside="open=false" class="scrollbar-thin absolute z-[70] mt-1 max-h-52 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl">@foreach(['all'=>'Semua waktu','today'=>'Hari ini','week'=>'Minggu ini','month'=>'Bulan ini','last_3_months'=>'3 bulan terakhir','year'=>'Tahun ini','custom'=>'Pilih tanggal'] as $value=>$label)<button type="button" @click="period='{{ $value }}'; open=false" class="w-full rounded-lg px-3 py-2 text-left text-xs hover:bg-slate-50" :class="period === '{{ $value }}' ? 'bg-brand-50 font-bold text-brand-600' : 'text-slate-600'">{{ $label }}</button>@endforeach</div></div>
                             <div><label class="label">Kategori lead</label><x-scroll-select name="conversion_scope" :options="$conversionOptions" :selected="request('conversion_scope')" placeholder="Semua kategori lead" /></div>
                             <div><label class="label">Sales</label><x-scroll-select name="owner_id" :options="$ownerOptions" :selected="request('owner_id')" placeholder="Semua sales" /></div>
                             <div><label class="label">Area</label><x-scroll-select name="area_id" :options="$areaOptions" :selected="request('area_id')" placeholder="Semua area" /></div>
@@ -126,14 +146,15 @@
                             <div><label class="label">Sumber lead</label><x-scroll-select name="source" :options="$sourceOptions" :selected="request('source')" placeholder="Semua sumber" /></div>
                             <div><label class="label">Status lead</label><x-scroll-select name="lead_status" :options="\App\Models\Lead::EDITABLE_STATUSES" :selected="request('lead_status')" placeholder="Semua status" /></div>
                         </div>
-                        <div x-show="period === 'custom'" x-cloak class="mt-3 grid gap-3 sm:grid-cols-2"><div><label class="label">Dari tanggal</label><input type="date" name="date_from" value="{{ request('date_from') }}" class="field"></div><div><label class="label">Sampai tanggal</label><input type="date" name="date_to" value="{{ request('date_to') }}" class="field"></div></div>
                         <div class="mt-5 flex justify-end gap-2 border-t border-slate-100 pt-4"><a href="{{ route('reports.index', ['view'=>'conversion']) }}" class="btn-secondary justify-center">Reset</a><button class="btn-primary min-w-32 justify-center">Terapkan</button></div>
                     </div>
                 </form>
             </section>
 
             <div x-show="exportOpen" x-cloak @keydown.escape.window="exportOpen = false" class="fixed inset-0 z-[80] grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm">
-                <form method="GET" x-data="{ exportPeriod: @js(request('period', 'all')) }" @click.outside="exportOpen = false" class="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+                <form method="GET" @click.outside="exportOpen = false" class="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+                    <input type="hidden" name="start_date" value="{{ $dateFrom }}">
+                    <input type="hidden" name="end_date" value="{{ $dateTo }}">
                     <header class="flex items-start justify-between border-b border-slate-100 px-5 py-4">
                         <div><h3 class="section-title">Export laporan</h3><p class="mt-1 text-xs text-slate-500">Atur data dan informasi yang ingin dimasukkan ke laporan.</p></div>
                         <button type="button" @click="exportOpen = false" class="grid size-9 place-items-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200" aria-label="Tutup"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 3l10 10M13 3 3 13"/></svg></button>
@@ -146,7 +167,6 @@
                                 <div class="relative"><svg class="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="9" r="6"/><path d="m14 14 4 4"/></svg><input class="field pl-10" name="search" value="{{ request('search') }}" placeholder="Nama lead, perusahaan, PIC, atau ID..."></div>
                             </div>
                             <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                                <div x-data="{ open: false }" class="relative"><label class="label">Periode</label><input type="hidden" name="period" :value="exportPeriod"><button type="button" class="field flex items-center justify-between text-left" @click="open=!open"><span>@foreach(['all'=>'Semua waktu','today'=>'Hari ini','week'=>'Minggu ini','month'=>'Bulan ini','last_3_months'=>'3 bulan terakhir','year'=>'Tahun ini','custom'=>'Pilih tanggal'] as $value=>$label)<span x-show="exportPeriod === '{{ $value }}'" @if(request('period', 'all') !== $value) x-cloak @endif>{{ $label }}</span>@endforeach</span><svg class="size-4 text-slate-400" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m5 7.5 5 5 5-5"/></svg></button><div x-show="open" x-cloak @click.outside="open=false" class="scrollbar-thin absolute z-[90] mt-1 max-h-52 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl">@foreach(['all'=>'Semua waktu','today'=>'Hari ini','week'=>'Minggu ini','month'=>'Bulan ini','last_3_months'=>'3 bulan terakhir','year'=>'Tahun ini','custom'=>'Pilih tanggal'] as $value=>$label)<button type="button" @click="exportPeriod='{{ $value }}'; open=false" class="w-full rounded-lg px-3 py-2 text-left text-xs hover:bg-slate-50" :class="exportPeriod === '{{ $value }}' ? 'bg-brand-50 font-bold text-brand-600' : 'text-slate-600'">{{ $label }}</button>@endforeach</div></div>
                                 <div><label class="label">Kategori lead</label><x-scroll-select name="conversion_scope" :options="$conversionOptions" :selected="request('conversion_scope')" placeholder="Semua kategori lead" /></div>
                                 <div><label class="label">Sales</label><x-scroll-select name="owner_id" :options="$ownerOptions" :selected="request('owner_id')" placeholder="Semua sales" /></div>
                                 <div><label class="label">Area</label><x-scroll-select name="area_id" :options="$areaOptions" :selected="request('area_id')" placeholder="Semua area" /></div>
@@ -154,7 +174,6 @@
                                 <div><label class="label">Sumber lead</label><x-scroll-select name="source" :options="$sourceOptions" :selected="request('source')" placeholder="Semua sumber" /></div>
                                 <div><label class="label">Status lead</label><x-scroll-select name="lead_status" :options="\App\Models\Lead::EDITABLE_STATUSES" :selected="request('lead_status')" placeholder="Semua status" /></div>
                             </div>
-                            <div x-show="exportPeriod === 'custom'" x-cloak class="mt-3 grid gap-3 sm:grid-cols-2"><div><label class="label">Dari tanggal</label><input type="date" name="date_from" value="{{ request('date_from') }}" class="field"></div><div><label class="label">Sampai tanggal</label><input type="date" name="date_to" value="{{ request('date_to') }}" class="field"></div></div>
                         </div>
                         <div class="mb-3 border-t border-slate-100 pt-5"><h4 class="text-sm font-extrabold text-ink">Kolom laporan</h4><p class="mt-1 text-xs text-slate-500">Pilih kolom yang ingin ditampilkan.</p></div>
                         <div class="grid gap-2 sm:grid-cols-2 md:grid-cols-3">
@@ -176,24 +195,12 @@
                 </form>
             </div>
 
-            <section class="relative z-0 order-first grid gap-3 md:grid-cols-3">
+            <section class="relative z-0 order-first grid gap-3 sm:grid-cols-2">
                 <div class="card flex items-center gap-4 px-5 py-4">
-                    <div class="grid size-10 shrink-0 place-items-center rounded-xl bg-violet-50 text-violet-600">
-                        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/><circle cx="12" cy="12" r="9"/></svg>
+                    <div class="grid size-10 shrink-0 place-items-center rounded-xl bg-indigo-50 text-indigo-600">
+                        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
                     </div>
-                    <div class="min-w-0 flex-1"><div class="flex items-baseline justify-between gap-3"><p class="text-sm font-bold text-ink">Leads Adds</p><strong class="text-2xl leading-none text-ink">{{ number_format($leadsAdds) }}</strong></div><p class="mt-1 text-xs text-slate-500">Lead baru yang perlu diperiksa</p></div>
-                </div>
-                <div class="card flex items-center gap-4 px-5 py-4">
-                    <div class="grid size-10 shrink-0 place-items-center rounded-xl bg-amber-50 text-amber-600">
-                        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>
-                    </div>
-                    <div class="min-w-0 flex-1">
-                        <div class="flex items-baseline justify-between gap-3">
-                            <p class="text-sm font-bold text-ink">Lead masuk</p>
-                            <strong class="text-2xl leading-none text-ink">{{ number_format($totalLeads) }}</strong>
-                        </div>
-                        <p class="mt-1 text-xs text-slate-500">Lead pada periode terpilih</p>
-                    </div>
+                    <div class="min-w-0 flex-1"><div class="flex items-baseline justify-between gap-3"><p class="text-sm font-bold text-ink">Lead Masuk</p><strong class="text-2xl leading-none text-ink">{{ number_format($totalLeads) }}</strong></div><p class="mt-1 text-xs text-slate-500">Seluruh lead baru pada periode terpilih</p></div>
                 </div>
 
                 <div class="card flex items-center gap-4 px-5 py-4">

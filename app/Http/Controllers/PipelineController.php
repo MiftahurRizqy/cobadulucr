@@ -21,7 +21,8 @@ class PipelineController extends Controller
     {
         $request->validate(['business_type_custom' => ['nullable', 'string', 'max:120']]);
         $this->resolveBusinessType($request, $businessUnits);
-        $data = $request->validate(['name' => ['required'], 'description' => ['nullable'], 'business_unit_id' => ['nullable', 'exists:business_units,id'], 'business_type' => ['nullable', 'string', 'max:120']]);
+        $data = $request->validate(['name' => ['required'], 'description' => ['nullable'], 'business_unit_id' => ['nullable', 'exists:business_units,id'], 'business_type' => ['nullable', 'string', 'max:120'], 'counts_as_custom_noo' => ['nullable', 'boolean']]);
+        $data['counts_as_custom_noo'] = $request->boolean('counts_as_custom_noo');
         $pipeline = Pipeline::create($data + ['slug' => Str::slug($data['name']).'-'.Str::lower(Str::random(4)), 'created_by' => $request->user()->id]);
         foreach (['New Lead', 'Qualified', 'Need Analysis', 'Quotation', 'Negotiation', 'Closed Won', 'Closed Lost'] as $i => $name) {
             $pipeline->stages()->create(['name' => $name, 'slug' => Str::slug($name), 'position' => $i + 1, 'probability' => [10, 25, 40, 60, 80, 100, 0][$i], 'color' => ['#64748b', '#3b82f6', '#8b5cf6', '#f59e0b', '#f97316', '#10b981', '#ef4444'][$i], 'is_won' => $name === 'Closed Won', 'is_lost' => $name === 'Closed Lost']);
@@ -41,6 +42,7 @@ class PipelineController extends Controller
         $this->resolveBusinessType($request, $businessUnits);
         $data = $request->validate([
             'name' => ['required'], 'description' => ['nullable'], 'business_unit_id' => ['nullable', 'exists:business_units,id'], 'business_type' => ['nullable', 'string', 'max:120'],
+            'counts_as_custom_noo' => ['nullable', 'boolean'],
             'is_active' => ['nullable', 'boolean'], 'stages' => ['required', 'array', 'min:1'],
             'stages.*.id' => ['nullable', 'exists:pipeline_stages,id'], 'stages.*.name' => ['required'],
             'stages.*.color' => ['required'], 'stages.*.probability' => ['required', 'integer', 'between:0,100'],
@@ -48,6 +50,7 @@ class PipelineController extends Controller
             'stages.*.is_lost' => ['nullable', 'boolean'], 'stages.*.rules_text' => ['nullable'],
         ]);
 
+        $data['counts_as_custom_noo'] = $request->boolean('counts_as_custom_noo');
         DB::transaction(function () use ($pipeline, $data) {
             $pipeline->update(collect($data)->except('stages')->all());
             $kept = [];

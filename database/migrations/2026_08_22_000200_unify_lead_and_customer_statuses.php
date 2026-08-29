@@ -11,7 +11,11 @@ return new class extends Migration
         if (DB::getDriverName() === 'mysql') {
             DB::statement("ALTER TABLE leads MODIFY status ENUM('leads_adds','cold_lead','warm_lead','leads_hold','leads_risky','converted') NOT NULL DEFAULT 'cold_lead'");
             DB::statement("ALTER TABLE customers MODIFY status ENUM('active','inactive','blocked','pareto','risky') NOT NULL DEFAULT 'active'");
-            DB::statement("UPDATE customers SET status = 'risky' WHERE health = 'risk' OR status = 'blocked'");
+            if (Schema::hasColumn('customers', 'health')) {
+                DB::statement("UPDATE customers SET status = 'risky' WHERE health = 'risk' OR status = 'blocked'");
+            } else {
+                DB::statement("UPDATE customers SET status = 'risky' WHERE status = 'blocked'");
+            }
             DB::statement("ALTER TABLE customers MODIFY status ENUM('pareto','active','inactive','risky') NOT NULL DEFAULT 'active'");
         }
 

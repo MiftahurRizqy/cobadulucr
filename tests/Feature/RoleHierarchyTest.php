@@ -51,6 +51,7 @@ class RoleHierarchyTest extends TestCase
         $this->seed(\Database\Seeders\DatabaseSeeder::class);
 
         $sales = Role::where('slug', 'sales')->firstOrFail();
+        $this->assertDatabaseHas('roles', ['slug' => 'telesales', 'name' => 'Telesales', 'is_system' => true]);
         $csa = Role::where('slug', 'csa')->firstOrFail();
         $supervisor = Role::where('slug', 'sales_supervisor')->firstOrFail();
         $manager = Role::where('slug', 'sales_manager')->firstOrFail();
@@ -186,11 +187,14 @@ class RoleHierarchyTest extends TestCase
         $admin = User::factory()->create(['authority_level' => 'master_admin']);
         $salesRole = Role::create(['name' => 'Sales', 'slug' => 'sales']);
         $csaRole = Role::create(['name' => 'CSA', 'slug' => 'csa']);
+        $managerRole = Role::create(['name' => 'Sales Manager', 'slug' => 'sales_manager']);
         $financeRole = Role::create(['name' => 'Finance', 'slug' => 'finance']);
         $csa = User::factory()->create(['authority_level' => 'supervisor']);
         $csa->roles()->attach($csaRole);
         $finance = User::factory()->create();
         $finance->roles()->attach($financeRole);
+        $manager = User::factory()->create(['authority_level' => 'manager']);
+        $manager->roles()->attach($managerRole);
         $payload = [
             'name' => 'Sales Baru',
             'email' => 'sales.baru@example.test',
@@ -214,6 +218,18 @@ class RoleHierarchyTest extends TestCase
         $sales = User::where('email', 'sales.baru@example.test')->firstOrFail();
         $this->assertSame($csa->id, $sales->manager_id);
         $this->assertSame('backliner', $sales->user_type);
+
+        $this->actingAs($admin)->put(route('users.update', $sales), [
+            'name' => $sales->name,
+            'email' => $sales->email,
+            'user_type' => 'frontliner',
+            'is_active' => 1,
+            'role_ids' => [$salesRole->id],
+            'manager_id' => $manager->id,
+        ])->assertRedirect(route('users.index'))
+            ->assertSessionHas('success', 'Data pengguna berhasil diperbarui.');
+
+        $this->assertSame($manager->id, $sales->fresh()->manager_id);
     }
 
     public function test_user_cannot_create_circular_coordinator_hierarchy(): void

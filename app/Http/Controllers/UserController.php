@@ -75,7 +75,7 @@ class UserController extends Controller
         $user->update($data);
         $this->sync($request, $user);
 
-        return redirect()->route('users.index')->with('success', 'User diperbarui.');
+        return redirect()->route('users.index')->with('success', 'Data pengguna berhasil diperbarui.');
     }
 
     private function validated(Request $request, ?User $user = null): array
@@ -158,7 +158,7 @@ class UserController extends Controller
         $errors = [];
 
         $allowedManagerRoles = match ($role->slug) {
-            'sales' => ['csa', 'sales_supervisor'],
+            'sales' => ['csa', 'sales_supervisor', 'sales_manager'],
             'csa', 'sales_supervisor' => ['sales_manager'],
             default => null,
         };

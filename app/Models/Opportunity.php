@@ -25,7 +25,7 @@ class Opportunity extends Model
         'opportunity_id', 'customer_id', 'lead_id', 'pipeline_id', 'pipeline_stage_id', 'owner_id',
         'participants', 'product_id', 'title', 'product_name', 'estimated_quantity', 'quantity_unit',
         'estimated_value', 'probability', 'target_price', 'offered_price', 'current_supplier',
-        'competitor', 'expected_close_date', 'next_action', 'next_follow_up_at', 'lead_source',
+        'competitor', 'expected_close_date', 'next_action', 'next_follow_up_at',
         'priority', 'status', 'hold_reason', 'lost_reason', 'lost_reason_detail',
         'stage_entered_at', 'last_activity_at',
     ];
@@ -79,6 +79,15 @@ class Opportunity extends Model
         return $query->where(fn ($query) => $query
             ->whereHas('customer', fn ($q) => $q->visibleTo($user))
             ->orWhereJsonContains('participants', $user->id));
+    }
+
+    public function realizedValue(): float
+    {
+        $itemTotal = array_key_exists('items_sum_subtotal', $this->attributes)
+            ? (float) ($this->attributes['items_sum_subtotal'] ?? 0)
+            : (float) $this->items()->sum('subtotal');
+
+        return $itemTotal > 0 ? $itemTotal : (float) $this->estimated_value;
     }
 
     protected function weightedValue(): Attribute
