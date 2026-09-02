@@ -13,6 +13,7 @@ class CustomerDuplicateController extends Controller
     {
         $data = $request->validate([
             'company_name' => ['nullable', 'string', 'max:255'],
+            'brand_name' => ['nullable', 'string', 'max:255'],
             'phone' => ['nullable', 'string', 'max:30'],
             'email' => ['nullable', 'email'],
             'npwp' => ['nullable', 'string', 'max:50'],

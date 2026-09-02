@@ -53,7 +53,7 @@ class KanbanOpportunitySeeder extends Seeder
         });
 
         $products = $plasticProducts;
-        $owners = User::query()->whereHas('roles', fn ($query) => $query->whereIn('slug', ['sales', 'csa']))->get();
+        $owners = User::query()->whereHas('roles', fn ($query) => $query->whereIn('slug', ['sales', 'telesales', 'csa']))->get();
 
         if ($stages->isEmpty() || $customers->isEmpty() || $products->isEmpty() || $owners->isEmpty()) {
             $this->command?->warn('Data pipeline, stage, customer, product, atau sales belum tersedia.');

@@ -11,7 +11,7 @@
 @endphp
 <div class="card mb-4 flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between">
     <form class="flex items-center gap-2"><label class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Pipeline</label><select name="pipeline" class="field min-w-52" onchange="this.form.submit()">@foreach($pipelines as $item)<option value="{{ $item->id }}" @selected($pipeline->id===$item->id)>{{ $item->name }}</option>@endforeach</select></form>
-    <div class="flex flex-wrap items-center gap-x-5 gap-y-2 text-[10px] text-slate-400"><span><b class="text-sm text-ink">{{ $allOpportunities->count() }}</b> opportunity</span><span><b class="text-sm text-ink">Rp {{ number_format($pipelineValue,0,',','.') }}</b> nilai pipeline</span><span class="hidden md:inline">Tarik kartu untuk memindahkan stage, klik untuk melihat detail.</span></div>
+    <div class="flex flex-wrap items-center gap-x-5 gap-y-2 text-[10px] text-slate-400"><a href="{{ route('opportunities.custom-progress') }}" class="btn-secondary !h-8 !px-3 text-[10px]">⚙ Custom progress</a><span><b class="text-sm text-ink">{{ $allOpportunities->count() }}</b> opportunity</span><span><b class="text-sm text-ink">Rp {{ number_format($pipelineValue,0,',','.') }}</b> nilai pipeline</span><span class="hidden md:inline">Tarik kartu untuk memindahkan stage, klik untuk melihat detail.</span></div>
 </div>
 
 <div data-kanban-shell>
@@ -46,6 +46,9 @@
                         <span class="min-w-0 truncate text-slate-400">{{ $opp->items->first()?->product_name ?? $opp->product_name }}</span>
                         @if($opp->items->count() > 1)<span class="shrink-0 rounded-full bg-slate-50 px-1.5 py-0.5 font-semibold text-slate-400 ring-1 ring-slate-100">+{{ $opp->items->count() - 1 }} produk lainnya</span>@endif
                     </div>
+                @endif
+                @if($opp->custom_progress_summary)
+                    <p class="mt-2 truncate text-[9px] font-semibold text-violet-700" title="{{ $opp->custom_progress_detail }}">⚙ Pekerjaan Custom: {{ $opp->custom_progress_summary }}</p>
                 @endif
                 <div class="mt-3 text-sm font-extrabold text-ink">Rp {{ number_format($opp->estimated_value,0,',','.') }}</div>
                 <div class="mt-3 flex items-center justify-between border-t border-slate-100 pt-3"><div class="flex min-w-0 items-center gap-2"><span class="grid size-7 shrink-0 place-items-center rounded-full bg-brand-50 text-[9px] font-extrabold text-brand-600">{{ mb_substr($opp->owner->name,0,1) }}</span><span class="max-w-24 truncate text-[9px] font-semibold text-slate-500">{{ $opp->owner->name }}</span></div><div class="text-[9px] text-slate-400"><span title="Task terbuka">✓ {{ $opp->tasks->whereNotIn('status',['done','cancelled'])->count() }}</span></div></div>

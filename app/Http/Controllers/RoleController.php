@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Permission;
+use App\Models\AuditLog;
 use App\Models\Role;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -12,12 +13,21 @@ class RoleController extends Controller
 {
     public function index()
     {
-        return view('roles.index', ['roles' => Role::with(['permissions', 'deniedPermissions', 'parentRole.permissions', 'parentRole.deniedPermissions', 'parentRole.parentRole.permissions', 'users.roles'])->withCount('users')->get()]);
+        return view('roles.index', [
+            'roles' => Role::with(['permissions', 'deniedPermissions', 'parentRole.permissions', 'parentRole.deniedPermissions', 'parentRole.parentRole.permissions', 'users.roles'])->withCount('users')->get(),
+            'hasMissingRoles' => app(\App\Services\DefaultRoleTemplates::class)->hasMissingRoles(),
+        ]);
     }
 
     public function create()
     {
         return $this->form(new Role);
+    }
+
+    public function applyTemplates(\App\Services\DefaultRoleTemplates $templates)
+    {
+        $count = $templates->apply();
+        return redirect()->route('roles.index')->with('success', "$count role bawaan ditambahkan. Pengaturan role yang sudah ada tidak diubah.");
     }
 
     public function store(Request $request)
@@ -78,13 +88,19 @@ class RoleController extends Controller
 
     private function syncPermissions(Request $request, Role $role): void
     {
+        $oldAllowedIds = $role->permissions()->pluck('permissions.id');
+        $oldDeniedIds = $role->deniedPermissions()->pluck('permissions.id');
         $selectedIds = collect($request->input('permission_ids', []))->map(fn ($id) => (int) $id)->unique();
         $inheritedIds = $role->parent_role_id
             ? Role::with(['permissions', 'deniedPermissions', 'parentRole.permissions', 'parentRole.deniedPermissions'])->findOrFail($role->parent_role_id)->effectivePermissions()->pluck('id')
             : collect();
 
-        $role->permissions()->sync($selectedIds->diff($inheritedIds)->values()->all());
-        $role->deniedPermissions()->sync($inheritedIds->diff($selectedIds)->values()->all());
+        $newAllowedIds = $selectedIds->diff($inheritedIds)->values()->all();
+        $newDeniedIds = $inheritedIds->diff($selectedIds)->values()->all();
+        $role->permissions()->sync($newAllowedIds);
+        $role->deniedPermissions()->sync($newDeniedIds);
+        AuditLog::recordRelation($role, 'permissions', $oldAllowedIds, $newAllowedIds);
+        AuditLog::recordRelation($role, 'denied_permissions', $oldDeniedIds, $newDeniedIds);
     }
 
     private function inheritsFrom(Role $role, int $targetId): bool

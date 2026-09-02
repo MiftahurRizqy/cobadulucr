@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AuditLog;
 use App\Models\Activity;
 use App\Models\Area;
 use App\Models\Customer;
@@ -14,6 +15,15 @@ use App\Support\BusinessUnitResolver;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
+use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Style\Alignment;
+use PhpOffice\PhpSpreadsheet\Style\Border;
+use PhpOffice\PhpSpreadsheet\Style\Fill;
+use PhpOffice\PhpSpreadsheet\Worksheet\Drawing;
+use PhpOffice\PhpSpreadsheet\Worksheet\PageSetup;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ReportController extends Controller
@@ -55,9 +65,9 @@ class ReportController extends Controller
         // Status/kartu hanya menyaring tabel detail. Ringkasan KPI tetap dihitung dari
         // kumpulan lead yang sama berdasarkan periode, sales, area, jenis, dan sumber.
         $detailLeadQuery = (clone $leadQuery)
-            ->when($request->lead_status, fn (Builder $query, $status) => $query->where('leads.status', $status))
+            ->when($request->lead_status, fn (Builder $query) => $query->withReportStatus($request->lead_status))
+            ->when($request->conversion_scope === 'leads_adds', fn (Builder $query) => $query->withReportStatus('leads_adds'))
             ->when($request->conversion_scope === 'incoming', fn (Builder $query) => $query->whereDoesntHave('convertedCustomer'))
-            ->when($request->conversion_scope === 'leads_adds', fn (Builder $query) => $query->where('leads.status', 'leads_adds'))
             ->when($request->conversion_scope === 'converted', fn (Builder $query) => $query->whereHas('convertedCustomer'))
             ->when($request->conversion_scope === 'deal', fn (Builder $query) => $query->whereHas(
                 'convertedCustomer.opportunityItems',
@@ -94,8 +104,8 @@ class ReportController extends Controller
             ->whereIn('converted_from_lead_id', $leadIds);
 
         $totalLeads = (clone $leadQuery)->count();
-        $leadsAdds = (clone $leadQuery)->where('status', 'leads_adds')->count();
-        $activeLeads = (clone $leadQuery)->where('status', '!=', 'converted')->count();
+        $leadsAdds = (clone $leadQuery)->withReportStatus('leads_adds')->count();
+        $activeLeads = (clone $leadQuery)->whereDoesntHave('convertedCustomer')->count();
         $convertedCustomers = (clone $customerQuery)->count();
         $customersWithDeal = (clone $customerQuery)
             ->whereHas('opportunityItems', fn (Builder $query) => $query->where('deal_status', 'deal'))
@@ -156,7 +166,7 @@ class ReportController extends Controller
             'dateFrom' => $dateFrom,
             'dateTo' => $dateTo,
             'periodLabel' => $periodLabel,
-            'owners' => User::query()->whereIn('id', Lead::query()->visibleTo($user)->select('owner_id'))->orderBy('name')->get(['id', 'name']),
+            'owners' => $this->reportOwners($user),
             'areas' => Area::query()->orderBy('name')->get(['id', 'name']),
             'businessUnits' => app(BusinessUnitResolver::class)->options()->pluck('name'),
             'sourceOptions' => $this->sourceOptions(),
@@ -192,12 +202,26 @@ class ReportController extends Controller
     {
         $columns = $this->selectedExportColumns($request);
         $rows = $this->exportLeadQuery($request)->latest()->get();
-        return response()->streamDownload(function () use ($rows, $columns) {
+        $summary = $this->exportSummary($request);
+        [$from, $to] = $this->periodRange($request);
+        $reportCompany = app(\App\Services\TenantManager::class)->current();
+        $exportedAt = now()->format('d M Y, H:i T');
+        AuditLog::record('exported', 'reports', new Lead, newValues: ['format' => 'csv', 'date_from' => (string) $from, 'date_to' => (string) $to, 'records' => $rows->count()]);
+        return response()->streamDownload(function () use ($rows, $columns, $summary, $from, $to, $reportCompany, $exportedAt) {
             $out = fopen('php://output', 'w');
             // BOM menjaga karakter UTF-8, sedangkan petunjuk separator membuat
             // Excel langsung memecah data ke kolom pada regional Indonesia.
             fwrite($out, "\xEF\xBB\xBF");
             fwrite($out, "sep=;\r\n");
+            fputcsv($out, ['Laporan Leads'], ';');
+            fputcsv($out, ['Perusahaan', $reportCompany?->name ?? 'CRM'], ';');
+            fputcsv($out, ['Periode', $from, $to], ';');
+            fputcsv($out, ['Diekspor pada', $exportedAt], ';');
+            foreach ($summary as $label => $value) {
+                fputcsv($out, [$label, $value], ';');
+            }
+            fputcsv($out, ['Ringkasan mengikuti periode dan filter utama; status hanya menyaring detail.'], ';');
+            fputcsv($out, [], ';');
             fputcsv($out, array_column($columns, 'label'), ';');
             foreach ($rows as $lead) {
                 fputcsv($out, array_map(fn ($column) => $column['value']($lead), $columns), ';');
@@ -206,12 +230,185 @@ class ReportController extends Controller
         }, 'laporan-crm-'.now()->format('Ymd-His').'.csv', ['Content-Type' => 'text/csv; charset=UTF-8']);
     }
 
+    public function exportExcel(Request $request)
+    {
+        $columns = $this->selectedExportColumns($request);
+        $rows = $this->exportLeadQuery($request)->latest()->get();
+        $summary = $this->exportSummary($request);
+        [$from, $to] = $this->periodRange($request);
+        $reportCompany = app(\App\Services\TenantManager::class)->current();
+        $companyName = $reportCompany?->name ?: config('app.name', 'CRM');
+        $exportedAt = now()->translatedFormat('d F Y, H:i').' WIB';
+
+        AuditLog::record('exported', 'reports', new Lead, newValues: [
+            'format' => 'xlsx', 'date_from' => (string) $from, 'date_to' => (string) $to, 'records' => $rows->count(),
+        ]);
+
+        $book = new Spreadsheet;
+        $sheet = $book->getActiveSheet();
+        $sheet->setTitle('Laporan Leads');
+        $book->getDefaultStyle()->getFont()->setName('Aptos')->setSize(10)->getColor()->setRGB('172033');
+        $sheet->setShowGridlines(false);
+        $sheet->getSheetView()->setZoomScale(85);
+        $sheet->getPageSetup()
+            ->setOrientation(PageSetup::ORIENTATION_LANDSCAPE)
+            ->setPaperSize(PageSetup::PAPERSIZE_A4)
+            ->setFitToPage(true)
+            ->setFitToWidth(1)
+            ->setFitToHeight(0);
+        $sheet->getPageMargins()->setTop(.45)->setRight(.3)->setBottom(.55)->setLeft(.3);
+        $footerCompany = str_replace('&', '&&', $companyName);
+        $sheet->getHeaderFooter()->setOddFooter('&L'.$footerCompany.' - Dokumen internal&C&P / &N');
+
+        $sheet->mergeCells('A1:B3');
+        $sheet->mergeCells('C1:J1')->setCellValue('C1', $companyName);
+        $sheet->mergeCells('C2:J2')->setCellValue('C2', 'Laporan Leads');
+        $periodText = Carbon::parse($from)->translatedFormat('d M Y').' - '.Carbon::parse($to)->translatedFormat('d M Y');
+        $sheet->mergeCells('C3:J3')->setCellValue('C3', 'Periode '.$periodText.'  |  Diterbitkan '.$exportedAt);
+        $sheet->getStyle('A1:J3')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT)->setVertical(Alignment::VERTICAL_CENTER);
+        $sheet->getStyle('C1')->getFont()->setBold(true)->setSize(12);
+        $sheet->getStyle('C2')->getFont()->setBold(true)->setSize(19);
+        $sheet->getStyle('C3')->getFont()->setSize(8)->getColor()->setRGB('667085');
+        $sheet->getStyle('A3:J3')->getBorders()->getBottom()->setBorderStyle(Border::BORDER_MEDIUM)->getColor()->setRGB('252B36');
+        $sheet->getRowDimension(1)->setRowHeight(22);
+        $sheet->getRowDimension(2)->setRowHeight(27);
+        $sheet->getRowDimension(3)->setRowHeight(23);
+        $sheet->getRowDimension(4)->setRowHeight(8);
+
+        $logoPath = $reportCompany?->logo_path ? public_path('storage/'.ltrim($reportCompany->logo_path, '/')) : null;
+        if ($logoPath && is_file($logoPath)) {
+            try {
+                $logo = new Drawing;
+                $logo->setName('Logo '.$companyName);
+                $logo->setPath($logoPath);
+                $logo->setCoordinates('A1');
+                $logo->setHeight(54);
+                $logo->setOffsetX(5);
+                $logo->setOffsetY(4);
+                $logo->setWorksheet($sheet);
+            } catch (\Throwable) {
+                $sheet->setCellValue('A1', mb_strtoupper(mb_substr($companyName, 0, 3)));
+            }
+        } else {
+            $sheet->setCellValue('A1', mb_strtoupper(mb_substr($companyName, 0, 3)));
+        }
+        $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(13)->getColor()->setRGB('312E81');
+        $sheet->getStyle('A1')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER)->setVertical(Alignment::VERTICAL_CENTER);
+
+        $summaryItems = array_values($summary);
+        $summaryLabels = array_keys($summary);
+        foreach ([['A','B'], ['C','D'], ['E','F'], ['G','J']] as $index => [$start, $end]) {
+            $sheet->mergeCells("{$start}5:{$end}5")->mergeCells("{$start}6:{$end}7");
+            $sheet->setCellValue($start.'5', mb_strtoupper($summaryLabels[$index] ?? ''));
+            $value = $summaryItems[$index] ?? 0;
+            $isPercent = is_string($value) && str_ends_with($value, '%');
+            $sheet->setCellValue($start.'6', $isPercent ? ((float) rtrim($value, '%')) / 100 : (int) $value);
+            $cardRange = "{$start}5:{$end}7";
+            $sheet->getStyle($cardRange)->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('F8FAFC');
+            $sheet->getStyle($cardRange)->getBorders()->getOutline()->setBorderStyle(Border::BORDER_THIN)->getColor()->setRGB('D9E0EA');
+            $sheet->getStyle($cardRange)->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT)->setVertical(Alignment::VERTICAL_CENTER);
+            $sheet->getStyle($start.'5')->getFont()->setBold(true)->setSize(8)->getColor()->setRGB('667085');
+            $sheet->getStyle($start.'6')->getFont()->setBold(true)->setSize(15)->getColor()->setRGB($index === 1 ? '047857' : ($index === 3 ? '312E81' : '172033'));
+            $sheet->getStyle($start.'6')->getNumberFormat()->setFormatCode($isPercent ? '0.0%' : '#,##0');
+        }
+
+        $detailRow = 10;
+        $columnCount = count($columns);
+        $detailLastColumn = Coordinate::stringFromColumnIndex(max(1, $columnCount));
+        $sheet->mergeCells("A9:{$detailLastColumn}9")->setCellValue('A9', 'Detail leads · '.$rows->count().' data');
+        $sheet->getStyle("A9:{$detailLastColumn}9")->getFont()->setBold(true)->setSize(11);
+        $sheet->fromArray(array_column($columns, 'label'), null, 'A'.$detailRow);
+        $sheet->getStyle("A{$detailRow}:{$detailLastColumn}{$detailRow}")->getFont()->setBold(true)->getColor()->setRGB('FFFFFF');
+        $sheet->getStyle("A{$detailRow}:{$detailLastColumn}{$detailRow}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('252B36');
+        $sheet->getStyle("A{$detailRow}:{$detailLastColumn}{$detailRow}")->getAlignment()->setVertical(Alignment::VERTICAL_CENTER)->setWrapText(true);
+        $sheet->getRowDimension($detailRow)->setRowHeight(28);
+
+        $rowNumber = $detailRow + 1;
+        foreach ($rows as $lead) {
+            foreach ($columns as $columnIndex => $column) {
+                $cell = Coordinate::stringFromColumnIndex($columnIndex + 1).$rowNumber;
+                if ($column['key'] === 'created_at' && $lead->created_at) {
+                    $sheet->setCellValue($cell, ExcelDate::PHPToExcel($lead->created_at));
+                    $sheet->getStyle($cell)->getNumberFormat()->setFormatCode('dd mmm yyyy, hh:mm');
+                } else {
+                    $sheet->setCellValue($cell, $column['value']($lead));
+                }
+            }
+            if ($rowNumber % 2 === 0) {
+                $sheet->getStyle("A{$rowNumber}:{$detailLastColumn}{$rowNumber}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setRGB('F8FAFC');
+            }
+            $sheet->getRowDimension($rowNumber)->setRowHeight(25);
+            $rowNumber++;
+        }
+        if ($rows->isEmpty()) {
+            $sheet->mergeCells("A{$rowNumber}:{$detailLastColumn}{$rowNumber}")->setCellValue('A'.$rowNumber, 'Tidak ada lead sesuai filter.');
+            $rowNumber++;
+        }
+
+        $lastRow = $rowNumber - 1;
+        $sheet->getStyle("A{$detailRow}:{$detailLastColumn}{$lastRow}")->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN)->getColor()->setRGB('D9E0EA');
+        $sheet->getStyle("A".($detailRow + 1).":{$detailLastColumn}{$lastRow}")->getAlignment()->setVertical(Alignment::VERTICAL_CENTER)->setWrapText(true);
+        $widths = ['lead_id'=>19, 'company_name'=>27, 'brand_name'=>21, 'owner'=>22, 'source'=>16, 'status'=>18, 'customer_status'=>24, 'area'=>17, 'business_unit'=>23, 'created_at'=>21];
+        foreach ($columns as $columnIndex => $column) {
+            $sheet->getColumnDimension(Coordinate::stringFromColumnIndex($columnIndex + 1))->setWidth($widths[$column['key']] ?? 18);
+        }
+        $sheet->freezePane('A11');
+        $sheet->setAutoFilter("A{$detailRow}:{$detailLastColumn}{$lastRow}");
+        $sheet->getPageSetup()->setPrintArea("A1:J{$lastRow}")->setRowsToRepeatAtTopByStartAndEnd($detailRow, $detailRow);
+        $sheet->getPageSetup()->setHorizontalCentered(true);
+
+        return response()->streamDownload(function () use ($book) {
+            (new Xlsx($book))->save('php://output');
+            $book->disconnectWorksheets();
+        }, 'laporan-leads-'.now()->format('Ymd-His').'.xlsx', ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']);
+    }
+
     public function exportPdf(Request $request)
     {
         [$from, $to] = $this->periodRange($request);
         $columns = $this->selectedExportColumns($request);
         $rows = $this->exportLeadQuery($request)->latest()->get();
-        return response()->view('reports.export-pdf', compact('rows', 'from', 'to', 'columns'));
+        $summary = $this->exportSummary($request);
+        $reportCompany = app(\App\Services\TenantManager::class)->current();
+        $exportedAt = now()->format('d M Y, H:i T');
+        AuditLog::record('exported', 'reports', new Lead, newValues: ['format' => 'pdf', 'date_from' => (string) $from, 'date_to' => (string) $to, 'records' => $rows->count()]);
+        return response()->view('reports.export-pdf', compact('rows', 'from', 'to', 'columns', 'summary', 'reportCompany', 'exportedAt'));
+    }
+
+    private function exportSummary(Request $request): array
+    {
+        $summaryRequest = $request->duplicate($request->except(['lead_status', 'conversion_scope']));
+        $query = $this->exportLeadQuery($summaryRequest);
+        $total = (clone $query)->count();
+        $converted = Customer::visibleTo($request->user())
+            ->whereIn('converted_from_lead_id', (clone $query)->select('id'))->count();
+
+        return [
+            'Lead Masuk' => $total,
+            'Menjadi customer' => $converted,
+            'Belum menjadi customer' => (clone $query)->whereDoesntHave('convertedCustomer')->count(),
+            'Konversi' => ($total ? round($converted / $total * 100, 1) : 0).'%',
+        ];
+    }
+
+    private function reportOwners(User $user)
+    {
+        return User::query()->where(function (Builder $query) use ($user) {
+            // Keep historical owners selectable, including inactive accounts.
+            $query->whereIn('id', Lead::visibleTo($user)->select('owner_id'))
+                ->orWhere(function (Builder $eligible) use ($user) {
+                    $eligible->where('is_active', true)
+                        ->whereHas('roles', fn (Builder $roles) => $roles->whereIn('slug', ['sales', 'telesales']));
+                    if ($user->isMasterAdmin() || $user->hasRole('csa')) return;
+                    if ($user->authority_level === 'manager') {
+                        $eligible->whereHas('businessUnits', fn (Builder $units) => $units->whereIn('business_units.id', $user->businessUnits()->pluck('business_units.id')));
+                    } elseif ($user->authority_level === 'supervisor') {
+                        $eligible->where('manager_id', $user->id);
+                    } else {
+                        $eligible->whereKey($user->id);
+                    }
+                });
+        })->orderBy('name')->get(['id', 'name']);
     }
 
     private function exportLeadQuery(Request $request): Builder
@@ -219,7 +416,7 @@ class ReportController extends Controller
         [$from, $to] = $this->periodRange($request);
 
         return Lead::visibleTo($request->user())
-            ->with(['owner:id,name', 'area:id,name', 'businessUnit:id,name', 'convertedCustomer:id,customer_id'])
+            ->with(['owner:id,name', 'area:id,name', 'businessUnit:id,name', 'convertedCustomer:id,customer_id,converted_from_lead_id'])
             ->when($request->search, function (Builder $query, string $search) {
                 $query->where(function (Builder $inner) use ($search) {
                     $inner->where('company_name', 'like', "%{$search}%")
@@ -236,9 +433,9 @@ class ReportController extends Controller
             ->when($request->area_id, fn (Builder $query, $id) => $query->where('area_id', $id))
             ->when($request->business_type, fn (Builder $query, $value) => $query->where('business_type', $value))
             ->when($request->source, fn (Builder $query, $value) => $query->where('source', $value))
-            ->when($request->lead_status, fn (Builder $query, $value) => $query->where('status', $value))
+            ->when($request->lead_status, fn (Builder $query) => $query->withReportStatus($request->lead_status))
+            ->when($request->conversion_scope === 'leads_adds', fn (Builder $query) => $query->withReportStatus('leads_adds'))
             ->when($request->conversion_scope === 'incoming', fn (Builder $query) => $query->whereDoesntHave('convertedCustomer'))
-            ->when($request->conversion_scope === 'leads_adds', fn (Builder $query) => $query->where('status', 'leads_adds'))
             ->when($request->conversion_scope === 'converted', fn (Builder $query) => $query->whereHas('convertedCustomer'));
     }
 
@@ -247,12 +444,14 @@ class ReportController extends Controller
         $available = [
             'lead_id' => ['label' => 'ID', 'value' => fn (Lead $lead) => $lead->convertedCustomer?->customer_id ?? $lead->lead_id],
             'company_name' => ['label' => 'Perusahaan', 'value' => fn (Lead $lead) => $lead->company_name],
-            'owner' => ['label' => 'Sales', 'value' => fn (Lead $lead) => $lead->owner?->name ?? '-'],
+            'brand_name' => ['label' => 'Brand', 'value' => fn (Lead $lead) => $lead->brand_name ?: '-'],
+            'owner' => ['label' => 'Sales / Telesales', 'value' => fn (Lead $lead) => $lead->owner?->name ?? '-'],
             'source' => ['label' => 'Sumber Lead', 'value' => fn (Lead $lead) => $this->sourceLabel($lead->source)],
-            'status' => ['label' => 'Status', 'value' => fn (Lead $lead) => $lead->statusLabel()],
+            'status' => ['label' => 'Status Lead', 'value' => fn (Lead $lead) => $lead->reportStatusLabel()],
+            'customer_status' => ['label' => 'Status Customer', 'value' => fn (Lead $lead) => $lead->convertedCustomer ? 'Sudah menjadi customer' : 'Belum menjadi customer'],
             'area' => ['label' => 'Area', 'value' => fn (Lead $lead) => $lead->area?->name ?? '-'],
             'business_unit' => ['label' => 'Jenis Customer', 'value' => fn (Lead $lead) => $lead->businessUnit?->name ?? $lead->business_type ?? '-'],
-            'created_at' => ['label' => 'Tanggal Masuk', 'value' => fn (Lead $lead) => $lead->created_at?->format('d/m/Y') ?? '-'],
+            'created_at' => ['label' => 'Tanggal Masuk', 'value' => fn (Lead $lead) => $lead->created_at?->format('d/m/Y H:i') ?? '-'],
         ];
 
         $selected = array_values(array_intersect((array) $request->input('columns', []), array_keys($available)));
@@ -260,7 +459,7 @@ class ReportController extends Controller
             $selected = array_keys($available);
         }
 
-        return array_map(fn ($key) => $available[$key], $selected);
+        return array_map(fn ($key) => ['key' => $key] + $available[$key], $selected);
     }
 
     private function sourceLabel(?string $source): string

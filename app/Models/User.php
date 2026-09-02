@@ -16,7 +16,7 @@ class User extends Authenticatable
     private array $permissionAccessCache = [];
 
     protected $fillable = [
-        'employee_id', 'name', 'email', 'phone', 'password', 'authority_level',
+        'employee_id', 'name', 'email', 'phone', 'avatar_path', 'password', 'authority_level',
         'user_type', 'is_approver', 'manager_id', 'is_active', 'settings', 'last_login_at',
     ];
 
@@ -42,6 +42,7 @@ class User extends Authenticatable
     public function teams() { return $this->belongsToMany(Team::class); }
     public function areas() { return $this->belongsToMany(Area::class); }
     public function assignedCustomers() { return $this->belongsToMany(Customer::class)->withPivot('responsibility')->withTimestamps(); }
+    public function collaborativeLeads() { return $this->belongsToMany(Lead::class)->withTimestamps(); }
     public function roomMemberships() { return $this->hasMany(RoomMember::class); }
     public function assignedTasks() { return $this->belongsToMany(Task::class)->withPivot('assignment_role')->withTimestamps(); }
     public function presence() { return $this->hasOne(UserPresence::class); }
@@ -64,7 +65,7 @@ class User extends Authenticatable
 
     public function isSales(): bool
     {
-        return $this->hasRole('sales');
+        return $this->roles()->whereIn('slug', ['sales', 'telesales'])->exists();
     }
 
     public function canAccess(string $permission): bool
@@ -96,7 +97,16 @@ class User extends Authenticatable
 
     public function requiresActivityEvidence(): bool
     {
-        return $this->authority_level === 'staff'
-            && $this->departments()->where('activity_evidence_required', true)->exists();
+        if (! $this->is_active || $this->isMasterAdmin()) {
+            return false;
+        }
+
+        $roleRequiresEvidence = SystemSetting::query()
+            ->where('key', 'activity_evidence_required')
+            ->where('value', '1')
+            ->whereIn('role_id', $this->roles()->pluck('roles.id'))
+            ->exists();
+
+        return $roleRequiresEvidence;
     }
 }

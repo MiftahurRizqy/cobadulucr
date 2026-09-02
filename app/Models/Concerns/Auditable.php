@@ -37,17 +37,7 @@ trait Auditable
                     default => null,
                 };
 
-                AuditLog::create([
-                    'user_id' => auth()->id(),
-                    'action' => $event,
-                    'module' => $model->getTable(),
-                    'auditable_type' => $model::class,
-                    'auditable_id' => $model->getKey(),
-                    'old_values' => $oldValues,
-                    'new_values' => $newValues,
-                    'ip_address' => request()?->ip(),
-                    'user_agent' => request()?->userAgent(),
-                ]);
+                AuditLog::record($event, $model->getTable(), $model, $oldValues, $newValues);
             });
         }
     }

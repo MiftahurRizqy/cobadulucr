@@ -1,8 +1,9 @@
 @extends('layouts.app')
-@section('title', 'Task')
-@section('eyebrow', 'Kolaborasi / Task')
+@section('title', 'Approval & Task')
+@section('eyebrow', 'Workspace / Approval & Task')
 
 @section('content')
+    @include('work._tabs')
     <div class="mb-5 flex items-center justify-between gap-4">
         <div>
             <p class="text-xs text-slate-500">Pantau pekerjaan, pelaksana, dan batas waktunya.</p>
@@ -134,15 +135,15 @@
                                 <span class="badge {{ $priorityClass }}">{{ \App\Support\Crm::PRIORITIES[$task->priority] ?? $task->priority }}</span>
                             </td>
                             <td class="px-4 py-4">
-                                <form method="POST" action="{{ route('tasks.status', $task) }}" class="flex items-center gap-2">
+                                <form method="POST" action="{{ route('tasks.status', $task) }}" class="flex items-center gap-2" x-data="{ saving: false }">
                                     @csrf
                                     @method('PATCH')
-                                    <select class="field !min-h-9 !py-1.5 !text-xs {{ $statusClass }}" name="status" aria-label="Status {{ $task->title }}">
+                                    <select class="field !min-h-9 !py-1.5 !text-xs {{ $statusClass }}" name="status" aria-label="Status {{ $task->title }}" @change="saving = true; $el.form.requestSubmit()" :class="saving && 'opacity-60'">
                                         @foreach (\App\Support\Crm::TASK_STATUSES as $key => $label)
                                             <option value="{{ $key }}" @selected($task->status === $key)>{{ $label }}</option>
                                         @endforeach
                                     </select>
-                                    <button class="btn-secondary !min-h-9 !px-3 !py-1.5 text-xs">Simpan</button>
+                                    <span x-show="saving" x-cloak class="whitespace-nowrap text-[10px] font-semibold text-brand-600">Menyimpan...</span>
                                 </form>
                             </td>
                         </tr>
@@ -182,15 +183,15 @@
                     @if ($task->reviewer)
                         <div class="mt-1 text-[10px] font-semibold text-sky-600">Reviewer: {{ $task->reviewer->name }}</div>
                     @endif
-                    <form method="POST" action="{{ route('tasks.status', $task) }}" class="mt-3 flex gap-2 border-t border-slate-100 pt-3">
+                    <form method="POST" action="{{ route('tasks.status', $task) }}" class="mt-3 flex items-center gap-2 border-t border-slate-100 pt-3" x-data="{ saving: false }">
                         @csrf
                         @method('PATCH')
-                        <select class="field !py-2 text-xs" name="status">
+                        <select class="field !py-2 text-xs" name="status" aria-label="Status {{ $task->title }}" @change="saving = true; $el.form.requestSubmit()" :class="saving && 'opacity-60'">
                             @foreach (\App\Support\Crm::TASK_STATUSES as $key => $label)
                                 <option value="{{ $key }}" @selected($task->status === $key)>{{ $label }}</option>
                             @endforeach
                         </select>
-                        <button class="btn-secondary !px-3 !py-2 text-xs">Simpan</button>
+                        <span x-show="saving" x-cloak class="whitespace-nowrap text-[10px] font-semibold text-brand-600">Menyimpan...</span>
                     </form>
                 </article>
             @empty

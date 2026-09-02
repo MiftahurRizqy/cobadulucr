@@ -2,6 +2,10 @@
 @section('title',$lead->exists?'Edit Lead':'Lead Baru')
 @section('eyebrow','CRM / Customer')
 @section('content')
+@php
+    $selectedCollaborators = collect(old('collaborator_ids', $lead->exists ? $lead->collaborators->pluck('id')->all() : []))
+        ->map(fn ($id) => (string) $id);
+@endphp
 <form method="POST" action="{{ $lead->exists ? route('leads.update',$lead) : route('leads.store') }}" data-duplicate-check data-duplicate-url="{{ route('customers.duplicate-check') }}" data-except-lead="{{ $lead->id }}">
     @csrf
     @if($lead->exists) @method('PUT') @endif
@@ -10,10 +14,10 @@
     <div class="space-y-6">
         <section class="card p-6">
             <h3 class="section-title">Informasi lead</h3>
-            <p class="mb-5 mt-1 text-xs text-slate-400">Data utama perusahaan dan kontak yang dapat dihubungi.</p>
+            <p class="mb-5 mt-1 text-xs text-slate-400">Data utama brand dan kontak yang dapat dihubungi.</p>
             <div class="grid gap-5 md:grid-cols-2">
-                <div><label class="label">Nama perusahaan *</label><input class="field" name="company_name" value="{{ old('company_name',$lead->company_name) }}" placeholder="Masukkan nama perusahaan" required></div>
-                <div><label class="label">Nama brand</label><input class="field" name="brand_name" value="{{ old('brand_name',$lead->brand_name) }}" placeholder="Masukkan nama brand"></div>
+                <div><label class="label">Nama brand *</label><input class="field" name="brand_name" value="{{ old('brand_name',$lead->brand_name) }}" placeholder="Masukkan nama brand" required></div>
+                <div><label class="label">Nama perusahaan</label><input class="field" name="company_name" value="{{ old('company_name',$lead->company_name) }}" placeholder="Masukkan nama perusahaan (opsional)"></div>
                 <div><label class="label">Nama PIC *</label><input class="field" name="contact_name" value="{{ old('contact_name',$lead->contact_name) }}" placeholder="Masukkan nama PIC" required></div>
                 <div><label class="label">Nomor WhatsApp *</label><input class="field" name="phone" value="{{ old('phone',$lead->phone ?: $lead->whatsapp) }}" inputmode="tel" placeholder="08xxxxxxxxxx" required></div>
                 <div><label class="label">Email</label><input type="email" class="field" name="email" value="{{ old('email',$lead->email) }}" placeholder="Masukkan alamat email"></div>
@@ -88,7 +92,39 @@
                 @if($isSales)
                     <div><label class="label">Sales penanggung jawab</label><div class="field flex items-center bg-slate-50 font-semibold text-slate-700">{{ auth()->user()->name }}</div><input type="hidden" name="owner_id" value="{{ $lead->exists ? $lead->owner_id : auth()->id() }}"></div>
                 @else
-                    <div><label class="label">Sales penanggung jawab *</label><select class="field" name="owner_id" required><option value="">Pilih sales</option>@foreach($users as $user)<option value="{{ $user->id }}" @selected(old('owner_id',$lead->owner_id)==$user->id)>{{ $user->name }}</option>@endforeach</select></div>
+                    @php($ownerOptions = $users->map(fn ($user) => ['id' => (string) $user->id, 'name' => $user->name, 'role' => $user->roleNames()])->values())
+                    <div class="relative" x-data="{ open: false, search: '', selected: @js((string) old('owner_id', $lead->owner_id ?? '')), options: @js($ownerOptions), get chosen() { return this.options.find(item => item.id === this.selected); }, get matches() { const q = this.search.toLowerCase(); return this.options.filter(item => !q || item.name.toLowerCase().includes(q) || item.role.toLowerCase().includes(q)); }, choose(id) { this.selected = id; this.open = false; this.search = ''; } }" @keydown.escape.window="open=false">
+                        <label class="label">Sales/Telesales penanggung jawab *</label>
+                        <input type="hidden" name="owner_id" :value="selected">
+                        <button type="button" class="field flex items-center justify-between gap-3 text-left" @click="open=!open">
+                            <span class="min-w-0 truncate text-sm" :class="chosen ? 'font-semibold text-slate-700' : 'text-slate-400'" x-text="chosen ? chosen.name : 'Pilih Sales/Telesales'"></span>
+                            <svg class="size-4 shrink-0 text-slate-400 transition" :class="open && 'rotate-180'" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m5 7.5 5 5 5-5"/></svg>
+                        </button>
+                        <div x-show="open" x-cloak x-transition.origin.top.right @click.outside="open=false" class="absolute right-0 top-[66px] z-50 w-full min-w-[280px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl">
+                            <div class="border-b border-slate-100 p-2.5"><input type="search" class="field h-9 text-xs" x-model="search" placeholder="Cari Sales/Telesales..."></div>
+                            <div class="max-h-52 overflow-y-auto p-1.5">
+                                <template x-for="item in matches" :key="item.id"><button type="button" class="flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-left hover:bg-slate-50" @click="choose(item.id)"><span class="min-w-0"><span class="block truncate text-xs font-semibold text-slate-700" x-text="item.name"></span><span class="block truncate text-[9px] text-slate-400" x-text="item.role"></span></span><svg x-show="selected === item.id" class="size-4 shrink-0 text-brand-600" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="m4 10 4 4 8-8"/></svg></button></template>
+                                <div x-show="!matches.length" class="px-3 py-6 text-center text-[10px] text-slate-400">Sales/Telesales tidak ditemukan.</div>
+                            </div>
+                        </div>
+                    </div>
+                @endif
+                @if($canInvite)
+                @php($collaborationOptions = $users->map(fn ($user) => ['id' => (string) $user->id, 'name' => $user->name, 'role' => $user->roleNames()])->values())
+                <div class="relative" x-data="{ open: false, search: '', selected: @js($selectedCollaborators->values()), options: @js($collaborationOptions), get matches() { const q = this.search.toLowerCase(); return this.options.filter(item => !q || item.name.toLowerCase().includes(q) || item.role.toLowerCase().includes(q)); } }" @keydown.escape.window="open=false">
+                    <label class="label">Kolaborasi</label>
+                    <button type="button" class="field flex items-center justify-between gap-3 text-left" @click="open=!open">
+                        <span class="min-w-0 truncate text-sm" :class="selected.length ? 'font-semibold text-slate-700' : 'text-slate-400'" x-text="selected.length ? selected.length + ' rekan dipilih' : 'Pilih rekan (opsional)'"></span>
+                        <svg class="size-4 shrink-0 text-slate-400 transition" :class="open && 'rotate-180'" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m5 7.5 5 5 5-5"/></svg>
+                    </button>
+                    <div x-show="open" x-cloak x-transition.origin.top.right @click.outside="open=false" class="absolute right-0 top-[66px] z-50 w-full min-w-[280px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl">
+                        <div class="border-b border-slate-100 p-2.5"><input type="search" class="field h-9 text-xs" x-model="search" placeholder="Cari Sales/Telesales..."></div>
+                        <div class="max-h-52 overflow-y-auto p-1.5">
+                            <template x-for="item in matches" :key="item.id"><label class="flex cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 hover:bg-slate-50"><input type="checkbox" name="collaborator_ids[]" :value="item.id" x-model="selected" class="size-4 accent-brand-600"><span class="min-w-0"><span class="block truncate text-xs font-semibold text-slate-700" x-text="item.name"></span><span class="block truncate text-[9px] text-slate-400" x-text="item.role"></span></span></label></template>
+                            <div x-show="!matches.length" class="px-3 py-6 text-center text-[10px] text-slate-400">Rekan tidak ditemukan.</div>
+                        </div>
+                    </div>
+                </div>
                 @endif
                 <div><label class="label">Source *</label><select class="field" name="source" required><option value="">Pilih source</option>@foreach(['website'=>'Website','whatsapp'=>'WhatsApp','referral'=>'Referral','sales_visit'=>'Sales Visit','event'=>'Event','ads'=>'Ads','social_media'=>'Social Media','marketplace'=>'Marketplace','database'=>'Database','telemarketing'=>'Telemarketing','walk_in'=>'Walk In','other'=>'Other'] as $value=>$label)<option value="{{ $value }}" @selected(old('source',$lead->source)===$value)>{{ $label }}</option>@endforeach</select></div>
                 <div><label class="label">Status *</label><select class="field" name="status" required><option value="">Pilih status</option>@foreach(\App\Models\Lead::EDITABLE_STATUSES as $value=>$label)<option value="{{ $value }}" @selected(old('status',$lead->status)===$value)>{{ $label }}</option>@endforeach</select></div>

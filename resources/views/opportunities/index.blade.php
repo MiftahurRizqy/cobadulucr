@@ -92,7 +92,7 @@
                     <td class="px-3 py-3 text-center"><a href="{{ route('opportunities.show',$opportunity) }}" class="inline-flex rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[10px] font-bold text-slate-600 shadow-sm hover:text-brand-700">Detail</a></td>
                 </tr>
             @empty
-                <tr><td colspan="9" class="empty-state py-16 text-sm"><div class="font-bold text-slate-600">Opportunity tidak ditemukan</div><div class="mt-1 text-xs">Ubah filter atau buat opportunity baru.</div></td></tr>
+                <tr><td colspan="9"><div class="empty-state min-h-[150px]"><div class="font-bold text-slate-600">Opportunity tidak ditemukan</div><div class="mt-1 text-xs">Ubah filter atau buat opportunity baru.</div></div></td></tr>
             @endforelse
             </tbody>
         </table>

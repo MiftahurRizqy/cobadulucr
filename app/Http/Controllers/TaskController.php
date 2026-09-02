@@ -3,10 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Models\Customer;
+use App\Models\AuditLog;
 use App\Models\Opportunity;
 use App\Models\Task;
 use App\Models\User;
 use App\Services\CrmNotifier;
+use App\Services\NavigationData;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
@@ -38,7 +40,7 @@ class TaskController extends Controller
         return view('tasks.form', ['task' => new Task(['customer_id' => $request->customer, 'opportunity_id' => $request->opportunity]), 'customers' => Customer::visibleTo($request->user())->get(), 'opportunities' => Opportunity::visibleTo($request->user())->get(), 'users' => User::where('is_active', true)->orderBy('name')->get()]);
     }
 
-    public function store(Request $request, CrmNotifier $notifier)
+    public function store(Request $request, CrmNotifier $notifier, NavigationData $navigationData)
     {
         // Requests created before the scope selector existed remain valid.
         $request->mergeIfMissing([
@@ -51,11 +53,14 @@ class TaskController extends Controller
         if ($data['opportunity_id'] ?? null) abort_unless(Opportunity::visibleTo($request->user())->whereKey($data['opportunity_id'])->exists(), 403);
         $task = Task::create($data + ['created_by' => $request->user()->id]);
         $task->assignees()->sync($assigneeIds);
+        AuditLog::recordRelation($task, 'assignees', [], $assigneeIds);
         foreach ($assigneeIds as $id) $notifier->send($id, 'task_assigned', 'Task baru: '.$task->title, 'Batas waktu '.($task->due_at?->format('d M Y H:i') ?? 'belum ditentukan'), route('tasks.index'));
+        collect($assigneeIds)->push($request->user()->id)->push($task->reviewer_id)->filter()->unique()
+            ->each(fn ($id) => $navigationData->forget((int) $id));
         return redirect()->route('tasks.index')->with('success', 'Task berhasil dibuat.');
     }
 
-    public function updateStatus(Request $request, Task $task)
+    public function updateStatus(Request $request, Task $task, NavigationData $navigationData)
     {
         abort_unless(Task::visibleTo($request->user())->whereKey($task->id)->exists(), 403);
         $data = $request->validate(['status' => ['required', 'in:todo,in_progress,review,done,blocked,cancelled'], 'completion_note' => ['nullable']]);
@@ -63,6 +68,8 @@ class TaskController extends Controller
             return back()->withErrors(['status' => 'Pilih reviewer sebelum memindahkan task ke Menunggu Review.']);
         }
         $task->update($data + ['completed_at' => $data['status'] === 'done' ? now() : null]);
+        $task->assignees()->pluck('users.id')->push($task->created_by)->push($task->reviewer_id)->filter()->unique()
+            ->each(fn ($id) => $navigationData->forget((int) $id));
         return back()->with('success', 'Status task diperbarui.');
     }
 }

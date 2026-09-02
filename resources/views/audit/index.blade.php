@@ -9,8 +9,21 @@
         'tasks' => 'Task', 'approvals' => 'Approval', 'pipelines' => 'Pipeline',
         'pipeline_stages' => 'Tahap pipeline', 'users' => 'Pengguna', 'roles' => 'Role',
         'areas' => 'Area', 'business_units' => 'Jenis customer',
+        'approval_steps' => 'Tahap approval', 'activity_approval_details' => 'Detail approval aktivitas',
+        'attachments' => 'Lampiran', 'comments' => 'Komentar', 'contacts' => 'Kontak',
+        'departments' => 'Departemen', 'kpi_templates' => 'Template KPI', 'sales_kpi_targets' => 'Target KPI',
+        'opportunity_stage_histories' => 'Riwayat tahap opportunity', 'permissions' => 'Hak akses',
+        'products' => 'Produk', 'report_saved_filters' => 'Filter laporan', 'room_members' => 'Anggota ruang customer',
+        'stage_rules' => 'Aturan tahap', 'system_settings' => 'Settings', 'teams' => 'Tim',
+        'tenants' => 'Perusahaan', 'authentication' => 'Keamanan akun', 'kpi' => 'Laporan KPI', 'reports' => 'Laporan',
+        'kpi_metrics' => 'KPI Metrics',
     ];
-    $actionLabels = ['created' => 'Create', 'updated' => 'Update', 'deleted' => 'Delete'];
+    $actionLabels = [
+        'created' => 'Create', 'updated' => 'Update', 'deleted' => 'Delete',
+        'relations_updated' => 'Relasi diperbarui', 'login' => 'Login', 'logout' => 'Logout',
+        'login_failed' => 'Login gagal', 'password_changed' => 'Ganti password', 'exported' => 'Export',
+        'setup_completed' => 'Setup diselesaikan',
+    ];
 @endphp
 
 <div x-data="{
@@ -26,7 +39,14 @@
         follow_up_at: 'Jadwal follow-up', type: 'Jenis', priority: 'Prioritas', due_at: 'Batas waktu',
         pipeline_id: 'Pipeline', pipeline_stage_id: 'Tahap pipeline', probability: 'Probability', estimated_value: 'Nilai estimasi',
         product_name: 'Nama produk', quantity: 'Jumlah', unit: 'Satuan', customer_price: 'Harga customer', offered_price: 'Harga penawaran',
-        lost_reason: 'Kategori alasan Lost', lost_reason_detail: 'Detail alasan Lost'
+        lost_reason: 'Kategori alasan Lost', lost_reason_detail: 'Detail alasan Lost',
+        roles: 'Role', departments: 'Departemen', permissions: 'Hak akses', denied_permissions: 'Hak akses ditolak',
+        assigned_users: 'Pengguna yang ditugaskan', collaborators: 'Kolaborator', assignees: 'Pelaksana',
+        name: 'Nama metrik', source: 'Sumber data', filters: 'Filter', unit: 'Satuan', threshold: 'Nilai minimum',
+        is_active: 'Aktif', counts_in_achievement: 'Masuk pencapaian', sort_order: 'Urutan metrik', legacy_key: 'Kode metrik',
+        sales_target: 'Target penjualan', noo_target: 'Target NOO', custom_noo_target: 'Target NOO Custom',
+        large_account_target: 'Target Akun Besar', drink_volume_target: 'Target Drink', food_volume_target: 'Target Food',
+        metric_targets: 'Target metrik', evaluation_notes: 'Catatan evaluasi', key: 'Kunci pengaturan', value: 'Nilai pengaturan'
     },
     ignored: ['id', 'created_at', 'updated_at', 'deleted_at'],
     fieldName(key) {
@@ -85,7 +105,7 @@
                 @forelse($logs as $log)
                     @php
                         $changedKeys = collect(array_keys($log->new_values ?? $log->old_values ?? []))->reject(fn($key) => in_array($key, ['created_at','updated_at'], true));
-                        $payload = ['module' => $moduleLabels[$log->module] ?? str($log->module)->headline(), 'record' => $log->auditable_id, 'action' => $actionLabels[$log->action] ?? ucfirst($log->action), 'actor' => $log->user?->name ?? 'Sistem', 'time' => $log->created_at->format('d M Y, H:i:s'), 'ip' => $log->ip_address, 'old' => $log->old_values ?? [], 'new' => $log->new_values ?? []];
+                        $payload = ['module' => $moduleLabels[$log->module] ?? str($log->module)->headline(), 'record' => $log->auditable_id, 'action' => $actionLabels[$log->action] ?? ucfirst($log->action), 'actor' => $log->user?->name ?? 'Sistem', 'time' => $log->created_at->format('d M Y, H:i:s'), 'ip' => $log->ip_address, 'reason' => $log->reason, 'old' => $log->old_values ?? [], 'new' => $log->new_values ?? []];
                         $encodedPayload = base64_encode(json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
                     @endphp
                     <tr class="hover:bg-slate-50/70">
@@ -112,6 +132,7 @@
             <div class="max-h-[70vh] overflow-y-auto p-6">
                 <template x-if="selected"><div>
                     <div class="mb-5 grid gap-3 sm:grid-cols-3"><div class="rounded-xl bg-slate-50 p-4"><div class="text-[10px] font-bold uppercase text-slate-400">Tindakan</div><div class="mt-1 text-sm font-bold" x-text="selected.action"></div></div><div class="rounded-xl bg-slate-50 p-4"><div class="text-[10px] font-bold uppercase text-slate-400">Waktu</div><div class="mt-1 text-sm font-bold" x-text="selected.time"></div></div><div class="rounded-xl bg-slate-50 p-4"><div class="text-[10px] font-bold uppercase text-slate-400">Alamat IP</div><div class="mt-1 text-sm font-bold" x-text="selected.ip || '—'"></div></div></div>
+                    <div x-show="selected.reason" class="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3"><div class="text-[10px] font-bold uppercase text-amber-600">Keterangan</div><div class="mt-1 text-sm text-amber-900" x-text="selected.reason"></div></div>
                     <div class="overflow-hidden rounded-xl border border-slate-200">
                         <div class="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-3">
                             <div>

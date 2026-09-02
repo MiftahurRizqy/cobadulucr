@@ -431,7 +431,7 @@
                             <label x-show="!decisionTypes.includes(type) || @js($isApprover)" class="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 hover:bg-slate-50">
                                 <input type="checkbox" name="participant_ids[]" value="{{ $collaborator->id }}" x-model="selectedCollaborators" class="size-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500">
                                 <span class="grid size-7 shrink-0 place-items-center rounded-full bg-brand-50 text-[9px] font-black text-brand-700">{{ collect(explode(' ', $collaborator->name))->take(2)->map(fn($word) => mb_substr($word, 0, 1))->join('') }}</span>
-                                <span class="min-w-0 flex-1"><span class="block truncate text-[11px] font-bold text-slate-700">{{ $collaborator->name }}</span><span class="block truncate text-[9px] text-slate-400">{{ $collaborator->employee_id ?: ucfirst($collaborator->user_type) }} · {{ ucfirst(str_replace('_',' ',$collaborator->authority_level)) }}</span></span>
+                                <span class="min-w-0 flex-1"><span class="block truncate text-[11px] font-bold text-slate-700">{{ $collaborator->name }}</span><span class="block truncate text-[9px] text-slate-400">{{ $collaborator->employee_id ?: ucfirst($collaborator->user_type) }} · {{ $collaborator->roleNames() ?: ucfirst(str_replace('_',' ',$collaborator->authority_level)) }}</span></span>
                                 @if($isApprover)<span x-show="decisionTypes.includes(type)" x-cloak class="badge bg-violet-50 text-violet-600">Approver</span>@endif
                             </label>
                         @empty

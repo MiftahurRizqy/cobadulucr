@@ -1,6 +1,6 @@
 @extends('layouts.app')
 @section('title','Ringkasan Kerja')
-@section('eyebrow', ucfirst(str_replace('_',' ',auth()->user()->authority_level)).' · Dashboard')
+@section('eyebrow', (auth()->user()->roleNames() ?: ucfirst(str_replace('_',' ',auth()->user()->authority_level))).' · Dashboard')
 @section('content')
 <div class="mb-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
     <div><h2 class="text-lg font-extrabold tracking-tight text-ink">Selamat datang, {{ str(auth()->user()->name)->before(' ') }}</h2><p class="mt-1 text-xs text-slate-500">Fokus hari ini, kondisi pipeline, dan aktivitas terbaru dalam satu halaman.</p></div>

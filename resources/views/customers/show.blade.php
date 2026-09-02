@@ -12,7 +12,7 @@
                 <a href="{{ route('opportunities.create',['customer'=>$customer]) }}" class="block rounded-lg px-3 py-2.5 text-xs font-bold text-slate-700 hover:bg-brand-50 hover:text-brand-700">Buat opportunity</a>
                 <a href="{{ route('tasks.create',['customer'=>$customer]) }}" class="block rounded-lg px-3 py-2.5 text-xs font-bold text-slate-700 hover:bg-brand-50 hover:text-brand-700">Buat task</a>
                 <div class="my-1 border-t border-slate-100"></div>
-                <a href="{{ route('customers.edit',$customer) }}" class="block rounded-lg px-3 py-2.5 text-xs font-bold text-slate-700 hover:bg-brand-50 hover:text-brand-700">Edit data customer</a>
+                @if(auth()->user()->canAccess('customers.edit'))<a href="{{ route('customers.edit',$customer) }}" class="block rounded-lg px-3 py-2.5 text-xs font-bold text-slate-700 hover:bg-brand-50 hover:text-brand-700">Edit data customer</a>@endif
                 <button type="button" @click="createOpen=false; documentsOpen=true" class="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-xs font-bold text-slate-700 hover:bg-brand-50 hover:text-brand-700"><span>Dokumen customer</span><span class="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] text-slate-500">{{ $customer->attachments->count() }}</span></button>
             </div>
         </div>

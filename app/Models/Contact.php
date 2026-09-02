@@ -2,10 +2,13 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\Auditable;
 use Illuminate\Database\Eloquent\Model;
 
 class Contact extends Model
 {
+    use Auditable;
+
     protected $fillable = ['customer_id', 'name', 'position', 'phone', 'whatsapp', 'email', 'is_primary', 'notes'];
 
     protected function casts(): array

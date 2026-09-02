@@ -6,6 +6,7 @@ use App\Models\Activity;
 use App\Models\ActivityApprovalDetail;
 use App\Models\CrmNotification;
 use App\Models\User;
+use App\Models\Task;
 use Illuminate\Support\Facades\Cache;
 
 class NavigationData
@@ -45,14 +46,24 @@ class NavigationData
                     ->whereIn('activity_id', Activity::query()->visibleTo($user)->select('activities.id'))->count()
                 : 0;
 
+            $taskOpen = $user->canAccess('tasks.view')
+                ? Task::query()->visibleTo($user)->whereNotIn('status', ['done', 'cancelled'])->count()
+                : 0;
+
             return ['unread' => $notificationUnread + $followUpCount,
                 'headerNotifications' => $notifications, 'headerFollowUps' => $followUps,
-                'approvalWaiting' => $approvalWaiting];
+                'approvalWaiting' => $approvalWaiting, 'taskOpen' => $taskOpen,
+                'workWaiting' => $taskOpen + $approvalWaiting];
         });
     }
 
     public function forget(int $userId): void { Cache::forget($this->key($userId)); }
     // Keep the payload version in the key so a deployment that changes the
     // cached navigation structure never reuses an incompatible old value.
-    private function key(int $userId): string { return "navigation-data:v4:user:{$userId}"; }
+    private function key(int $userId): string
+    {
+        $tenantId = app(TenantManager::class)->current()?->id ?? 'central';
+
+        return "navigation-data:v5:tenant:{$tenantId}:user:{$userId}";
+    }
 }

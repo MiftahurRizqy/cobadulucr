@@ -59,6 +59,11 @@ class RoleHierarchyTest extends TestCase
         $this->assertSame($sales->id, $csa->parent_role_id);
         $this->assertSame($csa->id, $supervisor->parent_role_id);
         $this->assertSame($supervisor->id, $manager->parent_role_id);
+
+        $telesales = User::where('email', 'telesales@unified.test')->firstOrFail();
+        $this->assertTrue($telesales->hasRole('telesales'));
+        $this->assertTrue($telesales->isSales());
+        $this->assertSame('csa@unified.test', $telesales->manager?->email);
     }
 
     public function test_master_admin_is_represented_by_a_system_role(): void

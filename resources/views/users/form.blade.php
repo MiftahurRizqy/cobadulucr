@@ -9,7 +9,7 @@
     $initialUserType = old('user_type', $user->user_type ?: 'frontliner');
     $initialManager = (string) old('manager_id', $user->manager_id);
     $roleSlugs = $roles->mapWithKeys(fn($role) => [(string) $role->id => $role->slug]);
-    $roleTypes = $roles->mapWithKeys(fn($role) => [(string) $role->id => in_array($role->slug, ['sales', 'csa', 'sales_supervisor', 'sales_manager'], true) ? 'frontliner' : (in_array($role->slug, ['master_admin', 'finance', 'purchasing', 'warehouse'], true) ? 'backliner' : null)]);
+    $roleTypes = $roles->mapWithKeys(fn($role) => [(string) $role->id => in_array($role->slug, ['sales', 'telesales', 'csa', 'sales_supervisor', 'sales_manager'], true) ? 'frontliner' : (in_array($role->slug, ['master_admin', 'finance', 'purchasing', 'warehouse'], true) ? 'backliner' : null)]);
     $roleApproverDefaults = $roles->mapWithKeys(fn($role) => [(string) $role->id => in_array($role->slug, ['master_admin', 'sales_manager', 'sales_supervisor', 'csa'], true)]);
     $initialApprover = (string) old('is_approver', $user->exists ? (int) $user->is_approver : 0);
 @endphp
@@ -32,7 +32,7 @@
                 <div><label class="label">Nama *</label><input class="field" name="name" value="{{ old('name', $user->name) }}" placeholder="Masukkan nama lengkap" autocomplete="name" required></div>
                 <div><label class="label">Email *</label><input type="email" class="field" name="email" value="{{ old('email', $user->email) }}" placeholder="Masukkan alamat email" autocomplete="email" required></div>
                 <div><label class="label">Phone</label><input class="field" name="phone" value="{{ old('phone', $user->phone) }}" placeholder="Masukkan nomor telepon" autocomplete="tel"></div>
-                <div><label class="label">Koordinator</label><select class="field" name="manager_id" x-model="coordinatorId"><option value="">Pilih koordinator (opsional)</option>@foreach($managers as $m)<option value="{{ $m->id }}">{{ $m->name }}{{ $m->roleNames() ? ' · '.$m->roleNames() : '' }}</option>@endforeach</select></div>
+                <div><label class="label">CSA</label><select class="field" name="manager_id" x-model="coordinatorId"><option value="">Pilih CSA (opsional)</option>@foreach($managers as $m)<option value="{{ $m->id }}">{{ $m->name }}{{ $m->roleNames() ? ' · '.$m->roleNames() : '' }}</option>@endforeach</select><p class="mt-1 text-[10px] text-slate-400">Pilih CSA yang menangani Sales atau Telesales ini.</p></div>
                 <div><label class="label">Password {{ $user->exists ? '(opsional)' : '*' }}</label><input type="password" minlength="8" class="field" name="password" placeholder="{{ $user->exists ? 'Kosongkan jika tidak diubah' : 'Minimal 8 karakter' }}" autocomplete="new-password" @required(!$user->exists)></div>
                 <div><label class="label">Konfirmasi password</label><input type="password" minlength="8" class="field" name="password_confirmation" placeholder="Ulangi password" autocomplete="new-password" @required(!$user->exists)></div>
             </div>

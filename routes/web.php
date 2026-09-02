@@ -12,13 +12,17 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DepartmentActivityPolicyController;
 use App\Http\Controllers\LeadController;
 use App\Http\Controllers\KpiController;
+use App\Http\Controllers\KpiMetricSettingController;
 use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\OperationalSettingController;
 use App\Http\Controllers\OpportunityController;
 use App\Http\Controllers\PipelineController;
 use App\Http\Controllers\PresenceController;
+use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\TaskController;
+use App\Http\Controllers\TenantController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\ValidationSettingController;
 use Illuminate\Support\Facades\Route;
@@ -28,9 +32,12 @@ Route::middleware('guest')->group(function () {
     Route::post('/login', [AuthController::class, 'store'])->name('login.store');
 });
 
-Route::middleware(['auth', 'active'])->group(function () {
+Route::middleware(['tenant', 'auth', 'active'])->group(function () {
     Route::get('/', DashboardController::class)->name('dashboard');
     Route::post('/logout', [AuthController::class, 'destroy'])->name('logout');
+    Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
+    Route::put('/profile', [ProfileController::class, 'update'])->name('profile.update');
+    Route::put('/profile/password', [ProfileController::class, 'updatePassword'])->name('profile.password.update');
     Route::get('/customer-duplicate-check', CustomerDuplicateController::class)->name('customers.duplicate-check');
     Route::post('/presence/heartbeat', [PresenceController::class, 'heartbeat'])->name('presence.heartbeat');
     Route::get('/users/active', [PresenceController::class, 'index'])->name('users.active');
@@ -42,12 +49,18 @@ Route::middleware(['auth', 'active'])->group(function () {
     });
 
     Route::middleware('permission:customers.view')->group(function () {
-        Route::resource('customers', CustomerController::class)->except('destroy');
+        Route::resource('customers', CustomerController::class)->only(['index', 'show']);
         Route::post('/customers/{customer}/documents', [CustomerController::class, 'storeDocument'])->name('customers.documents.store');
+    });
+    Route::middleware('permission:customers.edit')->group(function () {
+        Route::get('/customers/{customer}/edit', [CustomerController::class, 'edit'])->name('customers.edit');
+        Route::put('/customers/{customer}', [CustomerController::class, 'update'])->name('customers.update');
+        Route::patch('/customers/{customer}', [CustomerController::class, 'update']);
     });
 
     Route::middleware('permission:opportunities.view')->group(function () {
         Route::get('/opportunities/kanban', [OpportunityController::class, 'kanban'])->name('opportunities.kanban');
+        Route::get('/opportunities/custom-progress', [OpportunityController::class, 'customProgress'])->name('opportunities.custom-progress');
         Route::resource('opportunities', OpportunityController::class)->only(['index', 'create', 'store', 'show']);
         Route::post('/opportunities/{opportunity}/stage', [OpportunityController::class, 'moveStage'])->name('opportunities.stage');
         Route::patch('/opportunities/{opportunity}/general-info', [OpportunityController::class, 'updateGeneralInfo'])->name('opportunities.general-info');
@@ -56,6 +69,9 @@ Route::middleware(['auth', 'active'])->group(function () {
         Route::patch('/opportunities/{opportunity}/items/{item}/price', [OpportunityController::class, 'updateItemPrice'])->name('opportunities.items.price');
         Route::patch('/opportunities/{opportunity}/items/{item}', [OpportunityController::class, 'updateItem'])->name('opportunities.items.update');
         Route::patch('/opportunities/{opportunity}/items/{item}/status', [OpportunityController::class, 'updateItemStatus'])->name('opportunities.items.status');
+        Route::patch('/opportunities/{opportunity}/items/{item}/custom-stage', [OpportunityController::class, 'updateItemCustomStage'])->name('opportunities.items.custom-stage');
+        Route::patch('/opportunities/{opportunity}/items/{item}/custom-stage', [OpportunityController::class, 'updateItemCustomStage'])->name('opportunities.items.custom-stage');
+        Route::patch('/opportunities/{opportunity}/items/{item}/custom-stage', [OpportunityController::class, 'updateItemCustomStage'])->name('opportunities.items.custom-stage');
     });
 
     Route::middleware('permission:activities.view')->group(function () {
@@ -86,23 +102,39 @@ Route::middleware(['auth', 'active'])->group(function () {
     Route::post('/notifications/{notification}/read', [NotificationController::class, 'read'])->name('notifications.read');
     Route::get('/reports', ReportController::class)->middleware('permission:reports.view')->name('reports.index');
     Route::get('/reports/export.csv', [ReportController::class, 'exportCsv'])->middleware('permission:reports.view')->name('reports.export.csv');
+    Route::get('/reports/export.xlsx', [ReportController::class, 'exportExcel'])->middleware('permission:reports.view')->name('reports.export.excel');
     Route::get('/reports/export.pdf', [ReportController::class, 'exportPdf'])->middleware('permission:reports.view')->name('reports.export.pdf');
     Route::middleware('permission:kpi.view')->group(function () {
         Route::get('/kpi', [KpiController::class, 'index'])->name('kpi.index');
         Route::get('/kpi/export/excel', [KpiController::class, 'exportExcel'])->name('kpi.export.excel');
         Route::get('/kpi/export/pdf', [KpiController::class, 'exportPdf'])->name('kpi.export.pdf');
-        Route::put('/kpi/{sales}', [KpiController::class, 'update'])->name('kpi.update');
+    });
+    Route::put('/kpi/{sales}', [KpiController::class, 'update'])->middleware('permission:kpi.manage')->name('kpi.update');
+    Route::middleware('permission:kpi.manage')->group(function () {
+        Route::put('/kpi-templates/{roleSlug}', [KpiController::class, 'updateTemplate'])->name('kpi.templates.update');
+        Route::post('/kpi-templates/{roleSlug}/apply', [KpiController::class, 'applyTemplate'])->name('kpi.templates.apply');
+        Route::post('/kpi-targets/copy-previous', [KpiController::class, 'copyPrevious'])->name('kpi.targets.copy-previous');
     });
 
     Route::middleware('permission:admin.manage')->group(function () {
+        Route::get('/platform/companies', [TenantController::class, 'index'])->name('tenants.index');
+        Route::post('/platform/companies', [TenantController::class, 'store'])->name('tenants.store');
+        Route::patch('/platform/companies/{tenant}', [TenantController::class, 'update'])->name('tenants.update');
+        Route::patch('/platform/companies/{tenant}/complete-setup', [TenantController::class, 'completeSetup'])->name('tenants.complete-setup');
+        Route::patch('/platform/companies/{tenant}/toggle', [TenantController::class, 'toggle'])->name('tenants.toggle');
         Route::resource('users', UserController::class)->except(['show', 'destroy']);
         Route::resource('areas', AreaController::class)->except(['show', 'destroy']);
+        Route::post('/roles/apply-templates', [RoleController::class, 'applyTemplates'])->name('roles.apply-templates');
         Route::resource('roles', RoleController::class)->except('show');
         Route::resource('pipelines', PipelineController::class)->except(['show', 'destroy']);
         Route::get('/settings/activity-evidence', [DepartmentActivityPolicyController::class, 'index'])->name('settings.activity-evidence.index');
         Route::put('/settings/activity-evidence', [DepartmentActivityPolicyController::class, 'update'])->name('settings.activity-evidence.update');
         Route::get('/settings/validation', [ValidationSettingController::class, 'index'])->name('settings.validation.index');
         Route::put('/settings/validation', [ValidationSettingController::class, 'update'])->name('settings.validation.update');
+        Route::get('/settings/operational', [OperationalSettingController::class, 'index'])->name('settings.operational.index');
+        Route::put('/settings/operational', [OperationalSettingController::class, 'update'])->name('settings.operational.update');
+        Route::get('/settings/kpi-metrics', [KpiMetricSettingController::class, 'index'])->name('settings.kpi-metrics.index');
+        Route::put('/settings/kpi-metrics', [KpiMetricSettingController::class, 'update'])->name('settings.kpi-metrics.update');
         Route::get('/settings/customer-types', [CustomerTypeSettingController::class, 'index'])->name('settings.customer-types.index');
         Route::post('/settings/customer-types', [CustomerTypeSettingController::class, 'store'])->name('settings.customer-types.store');
         Route::put('/settings/customer-types/{customerType}', [CustomerTypeSettingController::class, 'update'])->name('settings.customer-types.update');

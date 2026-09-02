@@ -4,7 +4,10 @@ namespace App\Http\Controllers;
 
 use App\Models\Department;
 use App\Models\Activity;
+use App\Models\AuditLog;
+use App\Models\KpiTemplate;
 use App\Models\Role;
+use App\Models\SalesKpiTarget;
 use App\Models\User;
 use App\Support\Crm;
 use Illuminate\Http\Request;
@@ -49,6 +52,7 @@ class UserController extends Controller
         $data['employee_id'] = 'USR-'.str_pad((string) (User::max('id') + 1), 4, '0', STR_PAD_LEFT);
         $user = User::create($data);
         $this->sync($request, $user);
+        $this->applyCurrentKpiTemplate($user, $request->user());
 
         return redirect()->route('users.index')->with('success', 'User berhasil dibuat.');
     }
@@ -98,6 +102,8 @@ class UserController extends Controller
 
     private function sync(Request $request, User $user): void
     {
+        $oldRoleIds = $user->roles()->pluck('roles.id');
+        $oldDepartmentIds = $user->departments()->pluck('departments.id');
         $roleIds = collect($request->input('role_ids', []))->map(fn ($id) => (int) $id);
         $masterAdminRoleId = Role::where('slug', 'master_admin')->value('id');
         if ($masterAdminRoleId) {
@@ -105,15 +111,32 @@ class UserController extends Controller
                 ? collect([(int) $masterAdminRoleId])
                 : $roleIds->reject(fn ($id) => $id === (int) $masterAdminRoleId);
         }
-        $user->roles()->sync($roleIds->unique()->values()->all());
+        $newRoleIds = $roleIds->unique()->values()->all();
+        $user->roles()->sync($newRoleIds);
+        AuditLog::recordRelation($user, 'roles', $oldRoleIds, $newRoleIds);
         $departmentNames = Role::whereKey($roleIds)->pluck('slug')->map(fn (string $slug) => match ($slug) {
-            'sales', 'csa', 'sales_supervisor', 'sales_manager' => 'Sales',
+            'sales', 'telesales', 'csa', 'sales_supervisor', 'sales_manager' => 'Sales',
             'finance' => 'Finance',
             'purchasing' => 'Purchasing',
             'warehouse' => 'Warehouse',
             default => null,
         })->filter()->unique();
-        $user->departments()->sync(Department::whereIn('name', $departmentNames)->pluck('id')->all());
+        $newDepartmentIds = Department::whereIn('name', $departmentNames)->pluck('id')->all();
+        $user->departments()->sync($newDepartmentIds);
+        AuditLog::recordRelation($user, 'departments', $oldDepartmentIds, $newDepartmentIds);
+    }
+
+    private function applyCurrentKpiTemplate(User $user, User $actor): void
+    {
+        $roleSlug = $user->roles()->whereIn('slug', ['sales', 'telesales'])->value('slug');
+        if (! $roleSlug || ! ($template = KpiTemplate::where('role_slug', $roleSlug)->first())) return;
+
+        $from = now()->startOfMonth();
+        SalesKpiTarget::firstOrCreate([
+            'user_id' => $user->id,
+            'period_start' => $from->toDateString(),
+            'period_end' => $from->copy()->endOfMonth()->toDateString(),
+        ], $template->targetValues() + ['updated_by' => $actor->id]);
     }
 
     private function formData(User $user): array
@@ -158,7 +181,7 @@ class UserController extends Controller
         $errors = [];
 
         $allowedManagerRoles = match ($role->slug) {
-            'sales' => ['csa', 'sales_supervisor', 'sales_manager'],
+            'sales', 'telesales' => ['csa', 'sales_supervisor', 'sales_manager'],
             'csa', 'sales_supervisor' => ['sales_manager'],
             default => null,
         };

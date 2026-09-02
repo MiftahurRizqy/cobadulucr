@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Area;
+use App\Models\AuditLog;
 use App\Models\Attachment;
 use App\Models\BusinessUnit;
 use App\Models\Customer;
@@ -19,7 +20,7 @@ class LeadController extends Controller
     public function index(Request $request)
     {
         $leads = Lead::query()->visibleTo($request->user())->with('owner')
-            ->when($request->search, fn ($q, $s) => $q->where(fn ($q) => $q->where('company_name', 'like', "%$s%")->orWhere('contact_name', 'like', "%$s%")->orWhere('lead_id', 'like', "%$s%")))
+            ->when($request->search, fn ($q, $s) => $q->where(fn ($q) => $q->where('brand_name', 'like', "%$s%")->orWhere('company_name', 'like', "%$s%")->orWhere('contact_name', 'like', "%$s%")->orWhere('lead_id', 'like', "%$s%")))
             ->when($request->status, fn ($q, $s) => $q->where('status', $s))
             ->latest()->paginate(15)->withQueryString();
         return view('leads.index', compact('leads'));
@@ -41,13 +42,15 @@ class LeadController extends Controller
         $this->guardDuplicates($request, $duplicateDetector, $data);
         $data['whatsapp'] = $data['phone'];
         $data['created_by'] = $request->user()->id;
-        Lead::create($data);
+        $lead = Lead::create($data);
+        $this->syncCollaborators($lead, $request);
         return redirect()->route('customers.index', ['view' => 'prospects'])->with('success', 'Lead berhasil dibuat.');
     }
 
     public function edit(Lead $lead)
     {
         abort_unless(Lead::visibleTo(auth()->user())->whereKey($lead->id)->exists(), 403);
+        $lead->load('collaborators');
         return view('leads.form', $this->formData($lead));
     }
 
@@ -69,6 +72,7 @@ class LeadController extends Controller
         $this->guardDuplicates($request, $duplicateDetector, $data, $lead);
         $data['whatsapp'] = $data['phone'];
         $lead->update($data);
+        $this->syncCollaborators($lead, $request);
         return redirect()->route('customers.index', ['view' => 'prospects'])->with('success', 'Lead diperbarui.');
     }
 
@@ -91,7 +95,7 @@ class LeadController extends Controller
         $customer = DB::transaction(function () use ($lead, $request) {
             $customer = Customer::create([
                 'converted_from_lead_id' => $lead->id,
-                'company_name' => $lead->company_name,
+                'company_name' => $lead->company_name ?: $lead->brand_name,
                 'brand_name' => $lead->brand_name,
                 'legal_name' => (string) $request->string('legal_name')->trim(),
                 'npwp' => (string) $request->string('npwp')->trim(),
@@ -112,7 +116,13 @@ class LeadController extends Controller
                 'next_follow_up_at' => $lead->next_follow_up_at,
                 'created_by' => $request->user()->id,
             ]);
-            $customer->assignedUsers()->attach($lead->owner_id, ['responsibility' => 'owner']);
+            $assignments = $lead->collaborators()->pluck('users.id')
+                ->reject(fn ($id) => (int) $id === (int) $lead->owner_id)
+                ->mapWithKeys(fn ($id) => [$id => ['responsibility' => 'collaborator']])
+                ->put($lead->owner_id, ['responsibility' => 'owner'])
+                ->all();
+            $customer->assignedUsers()->sync($assignments);
+            AuditLog::recordRelation($customer, 'assigned_users', [], array_keys($assignments));
 
             if ($file = $request->file('supporting_document')) {
                 $path = $file->store('customer-documents/'.now()->format('Y/m'), 'public');
@@ -128,7 +138,7 @@ class LeadController extends Controller
                 ]);
             }
 
-            $lead->update(['status' => 'converted']);
+            $lead->update(['status_before_conversion' => $lead->status, 'status' => 'converted']);
             return $customer;
         });
         return redirect()->route('customers.show', $customer)->with('success', 'Lead berhasil dikonversi menjadi customer.');
@@ -137,7 +147,7 @@ class LeadController extends Controller
     private function validated(Request $request): array
     {
         return $request->validate([
-            'company_name' => ['required', 'max:255'], 'brand_name' => ['nullable', 'max:255'],
+            'company_name' => ['nullable', 'max:255'], 'brand_name' => ['required', 'max:255'],
             'contact_name' => ['required', 'max:255'], 'phone' => ['required', 'max:30'],
             'whatsapp' => ['nullable', 'max:30'], 'email' => ['nullable', 'email'], 'city' => ['nullable'],
             'address' => ['nullable', 'string', 'max:2000'],
@@ -153,6 +163,8 @@ class LeadController extends Controller
             'estimated_need_unit' => ['nullable', 'in:pcs,pack,roll,ctn,set,kg,bal'],
             'notes' => ['nullable'], 'status' => ['required', 'in:'.implode(',', array_keys(Lead::EDITABLE_STATUSES))],
             'next_follow_up_at' => ['nullable', 'date'],
+            'collaborator_ids' => ['nullable', 'array'],
+            'collaborator_ids.*' => ['integer', 'distinct', 'exists:users,id'],
         ]);
     }
 
@@ -205,12 +217,29 @@ class LeadController extends Controller
         return [
             'lead' => $lead,
             'isSales' => auth()->user()->isSales(),
-            'users' => User::where('is_active', true)
-                ->whereHas('roles', fn ($query) => $query->where('slug', 'sales'))
+            'canInvite' => auth()->user()->canAccess('leads.invite'),
+            'users' => User::with('roles')->where('is_active', true)
+                ->whereHas('roles', fn ($query) => $query->whereIn('slug', ['sales', 'telesales']))
                 ->orderBy('name')->get(),
             'areas' => Area::orderBy('name')->get(),
             'businessUnits' => app(BusinessUnitResolver::class)->options(),
         ];
+    }
+
+    private function syncCollaborators(Lead $lead, Request $request): void
+    {
+        if (! $request->user()->canAccess('leads.invite')) return;
+
+        $ids = User::query()
+            ->where('is_active', true)
+            ->whereIn('id', collect($request->input('collaborator_ids', []))->map(fn ($id) => (int) $id))
+            ->whereKeyNot($lead->owner_id)
+            ->whereHas('roles', fn ($roles) => $roles->whereIn('slug', ['sales', 'telesales']))
+            ->pluck('id');
+
+        $oldIds = $lead->collaborators()->pluck('users.id');
+        $lead->collaborators()->sync($ids);
+        AuditLog::recordRelation($lead, 'collaborators', $oldIds, $ids);
     }
 
     private function guardDuplicates(Request $request, CustomerDuplicateDetector $detector, array $data, ?Lead $lead = null): void

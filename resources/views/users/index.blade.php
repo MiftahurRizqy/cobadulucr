@@ -52,7 +52,7 @@
             <tbody class="divide-y divide-slate-100">
                 @forelse($users as $user)
                 <tr class="hover:bg-slate-50/70">
-                    <td class="px-5 py-4"><div class="flex items-center gap-3"><div class="grid size-10 place-items-center rounded-xl bg-brand-100 text-xs font-extrabold text-brand-700">{{ mb_substr($user->name, 0, 1) }}</div><div><div class="text-sm font-extrabold text-ink">{{ $user->name }}</div><div class="text-[11px] text-slate-400">{{ $user->email }} · {{ $user->employee_id }}</div></div></div></td>
+                    <td class="px-5 py-4"><div class="flex items-center gap-3"><div class="grid size-10 shrink-0 place-items-center overflow-hidden rounded-xl {{ $user->avatar_path ? 'border border-slate-200 bg-white' : 'bg-brand-100 text-brand-700' }} text-xs font-extrabold">@if($user->avatar_path)<img src="{{ asset('storage/'.$user->avatar_path) }}" alt="Foto {{ $user->name }}" class="size-full object-cover">@else{{ mb_substr($user->name, 0, 1) }}@endif</div><div><div class="text-sm font-extrabold text-ink">{{ $user->name }}</div><div class="text-[11px] text-slate-400">{{ $user->email }} · {{ $user->employee_id }}</div></div></div></td>
                     <td class="px-4 py-4"><span class="badge bg-violet-50 capitalize text-violet-600">{{ $user->user_type }}</span></td>
                     <td class="px-4 py-4 text-xs font-semibold">{{ $user->roleNames() ?: '—' }}</td>
                     <td class="px-4 py-4"><span class="badge {{ $user->is_approver ? 'bg-violet-50 text-violet-600' : 'bg-slate-100 text-slate-400' }}">{{ $user->is_approver ? 'Approver' : 'Tidak' }}</span></td>

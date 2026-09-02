@@ -11,6 +11,7 @@ use App\Models\OpportunityItem;
 use App\Models\User;
 use App\Services\ImageEvidenceInspector;
 use App\Services\CrmNotifier;
+use App\Services\NavigationData;
 use App\Services\HeicPreviewGenerator;
 use App\Services\EvidenceThumbnailGenerator;
 use App\Services\EvidencePreviewOptimizer;
@@ -440,7 +441,7 @@ class ActivityController extends Controller
         return redirect()->route('customers.show', $activity->customer_id)->with('success', 'Aktivitas berhasil dicatat.');
     }
 
-    public function decideApproval(Request $request, Activity $activity, CrmNotifier $notifier)
+    public function decideApproval(Request $request, Activity $activity, CrmNotifier $notifier, NavigationData $navigationData)
     {
         abort_unless(Activity::query()->visibleTo($request->user())->whereKey($activity)->exists(), 403);
         $detail = $activity->approvalDetail;
@@ -564,6 +565,7 @@ class ActivityController extends Controller
             $notificationUrl,
             ['activity_id' => $activity->id, 'decision' => $data['decision']]
         );
+        $navigationData->forget($request->user()->id);
 
         return back()->with('success', 'Keputusan approval berhasil disimpan.');
     }

@@ -15,6 +15,7 @@ use App\Models\Pipeline;
 use App\Models\Product;
 use App\Models\Role;
 use App\Models\Task;
+use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Str;
@@ -23,16 +24,20 @@ class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
+        Tenant::updateOrCreate(
+            ['slug' => 'wiguna'],
+            ['name' => 'PT Wiguna Inti Batara Utama', 'database_name' => config('database.connections.central.database'), 'primary_color' => '#4f46e5', 'is_active' => true]
+        );
         $permissions = collect([
             'dashboard' => ['view'],
-            'leads' => ['view', 'create', 'edit', 'convert'],
-            'customers' => ['view', 'create', 'edit', 'invite'],
+            'leads' => ['view', 'create', 'edit', 'convert', 'invite'],
+            'customers' => ['view', 'edit'],
             'opportunities' => ['view', 'create', 'edit', 'move_stage'],
             'activities' => ['view', 'create'],
             'tasks' => ['view', 'create', 'update'],
             'approvals' => ['view', 'create', 'decide'],
             'reports' => ['view'],
-            'kpi' => ['view'],
+            'kpi' => ['view', 'manage'],
             'admin' => ['manage'],
         ])->flatMap(fn ($actions, $module) => collect($actions)->map(fn ($action) => Permission::updateOrCreate(['key' => "$module.$action"], ['module' => $module, 'action' => $action, 'label' => ucfirst($action).' '.ucfirst($module)])));
 
@@ -51,6 +56,10 @@ class DatabaseSeeder extends Seeder
             $role->permissions()->sync($permissions->whereIn('module', $modules)->pluck('id'));
             return [$slug => $role];
         });
+
+        $manageKpi = $permissions->firstWhere('key', 'kpi.manage');
+        $roles['sales']->permissions()->detach($manageKpi);
+        $roles['telesales']->permissions()->detach($manageKpi);
 
         $roles['csa']->update(['parent_role_id' => $roles['sales']->id]);
         $roles['sales_supervisor']->update(['parent_role_id' => $roles['csa']->id]);
@@ -75,16 +84,17 @@ class DatabaseSeeder extends Seeder
         $csa = User::create(['employee_id' => 'USR-0004', 'name' => 'Citra CSA', 'email' => 'csa@unified.test', 'phone' => '081200000004', 'password' => 'password', 'authority_level' => 'supervisor', 'user_type' => 'frontliner', 'is_approver' => true, 'manager_id' => $manager->id]);
         $salesA = User::create(['employee_id' => 'USR-0005', 'name' => 'Nadia Sales', 'email' => 'sales@unified.test', 'phone' => '081200000005', 'password' => 'password', 'authority_level' => 'staff', 'user_type' => 'frontliner', 'manager_id' => $csa->id]);
         $salesB = User::create(['employee_id' => 'USR-0006', 'name' => 'Iky Account Executive', 'email' => 'iky@unified.test', 'phone' => '081200000006', 'password' => 'password', 'authority_level' => 'staff', 'user_type' => 'frontliner', 'manager_id' => $csa->id]);
+        $telesales = User::create(['employee_id' => 'USR-0010', 'name' => 'Tania Telesales', 'email' => 'telesales@unified.test', 'phone' => '081200000010', 'password' => 'password', 'authority_level' => 'staff', 'user_type' => 'frontliner', 'manager_id' => $csa->id]);
         $finance = User::create(['employee_id' => 'USR-0007', 'name' => 'Sinta Finance', 'email' => 'finance@unified.test', 'phone' => '081200000007', 'password' => 'password', 'authority_level' => 'staff', 'user_type' => 'backliner']);
         $purchasing = User::create(['employee_id' => 'USR-0008', 'name' => 'Bima Purchasing', 'email' => 'purchasing@unified.test', 'phone' => '081200000008', 'password' => 'password', 'authority_level' => 'staff', 'user_type' => 'backliner']);
         $warehouse = User::create(['employee_id' => 'USR-0009', 'name' => 'Doni Warehouse', 'email' => 'warehouse@unified.test', 'phone' => '081200000009', 'password' => 'password', 'authority_level' => 'staff', 'user_type' => 'backliner']);
 
-        foreach ([$manager, $supervisor, $salesA, $salesB] as $user) {
+        foreach ([$manager, $supervisor, $salesA, $salesB, $telesales] as $user) {
             $user->businessUnits()->attach($food);
             $user->departments()->attach($salesDept);
             $user->areas()->sync($areas->pluck('id'));
         }
-        foreach ([[$admin, 'master_admin'], [$manager, 'sales_manager'], [$supervisor, 'sales_supervisor'], [$salesA, 'sales'], [$salesB, 'sales'], [$csa, 'csa'], [$finance, 'finance'], [$purchasing, 'purchasing'], [$warehouse, 'warehouse']] as [$user, $role]) $user->roles()->attach($roles[$role]);
+        foreach ([[$admin, 'master_admin'], [$manager, 'sales_manager'], [$supervisor, 'sales_supervisor'], [$salesA, 'sales'], [$salesB, 'sales'], [$telesales, 'telesales'], [$csa, 'csa'], [$finance, 'finance'], [$purchasing, 'purchasing'], [$warehouse, 'warehouse']] as [$user, $role]) $user->roles()->attach($roles[$role]);
         $csa->businessUnits()->attach($food);
         $csa->areas()->sync($areas->pluck('id'));
         foreach ([[$finance, $financeDept], [$purchasing, $purchasingDept], [$warehouse, $warehouseDept]] as [$user, $department]) {

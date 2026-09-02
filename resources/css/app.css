@@ -192,3 +192,18 @@ html.dark .has-\[\:checked\]\:bg-brand-50\/60:has(:checked) {
 html.dark label:has(input:checked) {
     color: #e2e8f0;
 }
+
+/* KPI hierarchy needs dedicated dark surfaces; translucent utility colors
+   otherwise retain their light RGB base. */
+html.dark .kpi-head-row {
+    border-color: #344563 !important;
+    background: #18233a !important;
+}
+html.dark .kpi-head-row:hover { background: #1d2a45 !important; }
+html.dark .kpi-head-row .bg-white { background: #0f172a !important; }
+html.dark .kpi-row-marker { background: #53627a !important; }
+html.dark .kpi-guide {
+    border-color: rgba(99, 102, 241, .35) !important;
+    background: rgba(49, 46, 129, .22) !important;
+    color: #c7d2fe !important;
+}

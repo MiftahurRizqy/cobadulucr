@@ -1,7 +1,8 @@
 @extends('layouts.app')
-@section('title','Approval')
-@section('eyebrow','Workspace · Approval')
+@section('title','Approval & Task')
+@section('eyebrow','Workspace / Approval & Task')
 @section('content')
+@include('work._tabs')
 @php
     $statusOptions = ['pending' => 'Pending', 'revision' => 'Revision Required', 'approved' => 'Approved', 'rejected' => 'Rejected', 'all' => 'All Statuses'];
 @endphp

@@ -1,15 +1,15 @@
 @extends('layouts.app')
-@section('title',$customer->exists?'Edit Customer':'Customer Baru')
+@section('title','Edit Customer')
 @section('eyebrow','CRM / Customer')
 @section('content')
 @php
-    $selected = collect(old('assigned_user_ids', $customer->exists ? $customer->assignedUsers->pluck('id')->all() : []))
+    $selected = collect(old('assigned_user_ids', $customer->assignedUsers->pluck('id')->all()))
         ->map(fn ($value) => (string) $value)->all();
 @endphp
 
-<form method="POST" action="{{ $customer->exists ? route('customers.update',$customer) : route('customers.store') }}" data-duplicate-check data-duplicate-url="{{ route('customers.duplicate-check') }}" data-except-customer="{{ $customer->id }}">
+<form method="POST" action="{{ route('customers.update',$customer) }}" data-duplicate-check data-duplicate-url="{{ route('customers.duplicate-check') }}" data-except-customer="{{ $customer->id }}">
     @csrf
-    @if($customer->exists) @method('PUT') @endif
+    @method('PUT')
     <input type="hidden" name="duplicate_confirmed" value="{{ old('duplicate_confirmed', 0) }}" data-duplicate-confirmed>
 
     <div class="grid gap-6 xl:grid-cols-[1fr_360px]">
@@ -52,7 +52,7 @@
                     @if($isSales)
                         <div><label class="label">Sales utama</label><div class="field flex items-center bg-slate-50 font-semibold text-slate-700">{{ auth()->user()->name }}</div><input type="hidden" name="sales_owner_id" value="{{ $customer->exists ? $customer->sales_owner_id : auth()->id() }}"></div>
                     @else
-                        <div><label class="label">Sales utama</label><select class="field" name="sales_owner_id"><option value="">Pilih sales</option>@foreach($users->filter(fn ($user) => $user->roles->contains('slug','sales')) as $user)<option value="{{ $user->id }}" @selected(old('sales_owner_id',$customer->sales_owner_id)==$user->id)>{{ $user->name }}</option>@endforeach</select></div>
+                        <div><label class="label">Sales/Telesales utama</label><select class="field" name="sales_owner_id"><option value="">Pilih Sales/Telesales</option>@foreach($users->filter(fn ($user) => $user->roles->whereIn('slug', ['sales', 'telesales'])->isNotEmpty()) as $user)<option value="{{ $user->id }}" @selected(old('sales_owner_id',$customer->sales_owner_id)==$user->id)>{{ $user->name }}</option>@endforeach</select><p class="mt-1 text-[10px] leading-relaxed text-slate-400">Jika diinput oleh CSA, kepemilikan dan KPI tetap tercatat untuk Sales/Telesales yang dipilih.</p></div>
                     @endif
                     <div><label class="label">Jenis customer</label><select class="field" name="business_type"><option value="">Pilih jenis customer</option>@foreach($businessUnits->reject(fn ($unit) => strcasecmp($unit->name, 'Other') === 0) as $unit)<option value="{{ $unit->name }}" @selected(old('business_type',$customer->business_type)===$unit->name)>{{ $unit->name }}</option>@endforeach</select></div>
                 </div>
@@ -63,7 +63,7 @@
                 <h3 class="section-title">Sales tambahan</h3>
                 <p class="mt-1 text-xs text-slate-400">Pilih jika customer ditangani oleh lebih dari satu sales.</p>
                 <div class="mt-4 max-h-52 space-y-1 overflow-y-auto">
-                    @foreach($users->filter(fn ($user) => $user->roles->contains('slug','sales')) as $user)
+                    @foreach($users->filter(fn ($user) => $user->roles->whereIn('slug', ['sales', 'telesales'])->isNotEmpty()) as $user)
                         <label class="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-slate-50">
                             <input type="checkbox" name="assigned_user_ids[]" value="{{ $user->id }}" x-model="selected" class="size-4 accent-brand-600">
                             <span class="min-w-0">

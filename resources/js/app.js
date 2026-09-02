@@ -294,7 +294,7 @@ const initCustomerDuplicateCheck = () => {
         const endpoint = form.dataset.duplicateUrl;
         const warning = form.querySelector('[data-duplicate-warning]');
         const confirmed = form.querySelector('[data-duplicate-confirmed]');
-        const fields = ['company_name', 'phone', 'email', 'npwp'];
+        const fields = ['brand_name', 'company_name', 'phone', 'email', 'npwp'];
         let matches = [];
         let timer;
         const render = () => {

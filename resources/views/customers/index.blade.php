@@ -131,8 +131,8 @@
                 @endphp
                 <tr class="transition hover:bg-indigo-50/40">
                     <td class="border-r border-slate-100 px-3 py-3">
-                        <div class="truncate text-xs font-extrabold text-ink" title="{{ $record->company_name }}">{{ $record->company_name }}</div>
-                        <div class="mt-1 truncate text-[10px] text-slate-400">{{ $isProspect?$record->lead_id:$record->customer_id }}@if($record->brand_name) · {{ $record->brand_name }}@endif</div>
+                        <div class="truncate text-xs font-extrabold text-ink" title="{{ $isProspect ? $record->brand_name : $record->company_name }}">{{ $isProspect ? $record->brand_name : $record->company_name }}</div>
+                        <div class="mt-1 truncate text-[10px] text-slate-400">{{ $isProspect?$record->lead_id:$record->customer_id }}@if($isProspect && $record->company_name) · {{ $record->company_name }}@elseif(!$isProspect && $record->brand_name) · {{ $record->brand_name }}@endif</div>
                     </td>
                     <td class="border-r border-slate-100 px-3 py-3">
                         @if($isProspect && $record->contact_name)<div class="truncate text-[11px] font-bold text-slate-700">{{ $record->contact_name }}</div>@endif
@@ -143,6 +143,7 @@
                     <td class="border-r border-slate-100 px-3 py-3">
                         @php($owner = $isProspect ? $record->owner : $record->salesOwner)
                         <div class="flex min-w-0 items-center gap-2"><span class="grid size-7 shrink-0 place-items-center rounded-full bg-indigo-50 text-[9px] font-extrabold text-indigo-600">{{ $owner?mb_substr($owner->name,0,1):'?' }}</span><span class="truncate text-[11px] font-semibold text-slate-700">{{ $owner?->name ?? 'Belum ditentukan' }}</span></div>
+                        @if($isProspect && $record->collaborators->isNotEmpty())<div class="mt-1 truncate pl-9 text-[9px] font-semibold text-brand-500" title="{{ $record->collaborators->pluck('name')->join(', ') }}">+ {{ $record->collaborators->count() }} kolaborator</div>@endif
                     </td>
                     @if($isProspect)
                     <td class="border-r border-slate-100 px-3 py-3 text-[10px] {{ $followUp?->isPast()?'font-bold text-rose-600':'text-slate-500' }}">
@@ -161,7 +162,7 @@
                                             <div class="flex items-start justify-between gap-4">
                                                 <div>
                                                     <h3 class="text-sm font-extrabold text-ink">Aksi lead</h3>
-                                                    <p class="mt-1 text-xs text-slate-500">{{ $record->company_name }}</p>
+                                                    <p class="mt-1 text-xs text-slate-500">{{ $record->brand_name }}</p>
                                                 </div>
                                                 <button type="button" @click="open=false" class="grid size-8 place-items-center rounded-full bg-slate-100 text-sm text-slate-500 hover:bg-slate-200" aria-label="Tutup">×</button>
                                             </div>
@@ -179,7 +180,7 @@
                                     <div x-show="convertOpen" x-cloak @keydown.escape.window="convertOpen=false" class="fixed inset-0 z-[110] grid place-items-center bg-slate-950/50 p-4" role="dialog" aria-modal="true">
                                         <form method="POST" action="{{ route('leads.convert',$record) }}" enctype="multipart/form-data" @click.outside="convertOpen=false" class="w-full max-w-lg overflow-hidden rounded-2xl bg-white text-left shadow-2xl">
                                             @csrf
-                                            <header class="flex items-start justify-between border-b border-slate-100 px-5 py-4"><div><h3 class="text-sm font-extrabold text-ink">Lengkapi data customer</h3><p class="mt-1 text-xs text-slate-500">{{ $record->company_name }}</p></div><button type="button" @click="convertOpen=false" class="grid size-9 place-items-center rounded-full bg-slate-100 text-slate-500" aria-label="Tutup">×</button></header>
+                                            <header class="flex items-start justify-between border-b border-slate-100 px-5 py-4"><div><h3 class="text-sm font-extrabold text-ink">Lengkapi data customer</h3><p class="mt-1 text-xs text-slate-500">{{ $record->brand_name }}</p></div><button type="button" @click="convertOpen=false" class="grid size-9 place-items-center rounded-full bg-slate-100 text-slate-500" aria-label="Tutup">×</button></header>
                                             <div class="space-y-4 p-5">
                                                 <p class="rounded-xl bg-sky-50 px-4 py-3 text-xs leading-relaxed text-sky-700">Nama legal dan NPWP diperlukan agar identitas customer valid. Dokumen pendukung dapat ditambahkan bila tersedia.</p>
                                                 <div><label class="label">Nama legal{{ $legalNameRequired ? ' *' : ' (opsional)' }}</label><input class="field" name="legal_name" value="{{ old('legal_name') }}" placeholder="Sesuai dokumen perusahaan" @required($legalNameRequired)></div>

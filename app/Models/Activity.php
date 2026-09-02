@@ -105,7 +105,7 @@ class Activity extends Model
     {
         if ($user->isMasterAdmin()) return $query;
 
-        if ($user->authority_level === 'staff' && $user->roles()->where('slug', 'sales')->exists()) {
+        if ($user->authority_level === 'staff' && $user->isSales()) {
             return $query->where(fn ($q) => $q
                 ->where('user_id', $user->id)
                 ->orWhereJsonContains('participants', $user->id));

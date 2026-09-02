@@ -32,6 +32,15 @@
 
 @section('content')
 @php
+    $reportCompany = app(\App\Services\TenantManager::class)->current();
+@endphp
+@if($reportCompany)
+<div class="mb-5 flex items-center gap-3 border-b border-slate-200 pb-5">
+    @if($reportCompany->logo_path)<img src="{{ asset('storage/'.$reportCompany->logo_path) }}" alt="Logo {{ $reportCompany->name }}" class="size-12 rounded-lg border border-slate-200 bg-white object-contain p-1.5">@endif
+    <div><div class="text-sm font-semibold text-ink">{{ $reportCompany->name }}</div><p class="mt-1 text-[11px] text-slate-500">Sales Report · {{ $periodLabel }}</p></div>
+</div>
+@endif
+@php
     $conversionView = true;
     $totalOutcome = $wonCount + $lostCount;
     $winRate = $totalOutcome > 0 ? round(($wonCount / $totalOutcome) * 100) : 0;
@@ -68,7 +77,7 @@
                 </div>
                 <div class="overflow-x-auto">
                     <table class="w-full min-w-[560px] text-left">
-                        <thead class="table-head"><tr><th class="px-5 py-3">Sales</th><th class="px-4 py-3 text-center">Closed Won</th><th class="px-5 py-3 text-right">Won value</th></tr></thead>
+                        <thead class="table-head"><tr><th class="px-5 py-3">Sales / Telesales</th><th class="px-4 py-3 text-center">Closed Won</th><th class="px-5 py-3 text-right">Won value</th></tr></thead>
                         <tbody class="divide-y divide-slate-100">
                             @forelse($byOwner as $ownerSummary)
                                 <tr class="transition hover:bg-indigo-50/40"><td class="px-5 py-4 text-sm font-bold text-ink">@if($ownerSummary->owner)<a href="{{ route('opportunities.index', ['owner'=>$ownerSummary->owner_id]) }}" class="hover:text-indigo-700">{{ $ownerSummary->owner->name }} →</a>@else Belum ditentukan @endif</td><td class="px-4 py-4 text-center text-sm text-slate-600">{{ number_format($ownerSummary->total) }}</td><td class="px-5 py-4 text-right text-sm font-extrabold text-ink">Rp {{ number_format((float) $ownerSummary->value,0,',','.') }}</td></tr>
@@ -114,9 +123,8 @@
                     $areaOptions = $areas->pluck('name', 'id')->all();
                     $customerTypeOptions = collect($businessUnits)->mapWithKeys(fn ($unit) => [$unit => $unit])->all();
                     $conversionOptions = [
-                        'incoming' => 'Lead masuk',
-                        'leads_adds' => 'Leads Adds',
-                        'converted' => 'Menjadi customer',
+                        'incoming' => 'Belum menjadi customer',
+                        'converted' => 'Sudah menjadi customer',
                     ];
                 @endphp
                 <form method="GET" class="relative p-4">
@@ -139,12 +147,12 @@
                     <div x-show="filterOpen" x-cloak x-transition.origin.top.right @click.outside="filterOpen = false" class="absolute right-4 top-[68px] z-50 w-[min(920px,calc(100%-32px))] rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
                         <div class="mb-4 flex items-start justify-between gap-4"><div><h3 class="section-title">Filter laporan konversi</h3><p class="mt-1 text-xs text-slate-500">Pilih filter yang diperlukan saja.</p></div><button type="button" @click="filterOpen=false" class="grid size-9 place-items-center rounded-full bg-slate-100 text-slate-500" aria-label="Tutup"><svg class="size-4" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4l12 12M16 4 4 16"/></svg></button></div>
                         <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                            <div><label class="label">Kategori lead</label><x-scroll-select name="conversion_scope" :options="$conversionOptions" :selected="request('conversion_scope')" placeholder="Semua kategori lead" /></div>
-                            <div><label class="label">Sales</label><x-scroll-select name="owner_id" :options="$ownerOptions" :selected="request('owner_id')" placeholder="Semua sales" /></div>
+                            <div><label class="label">Status lead</label><x-scroll-select name="lead_status" :options="\App\Models\Lead::EDITABLE_STATUSES" :selected="request('lead_status')" placeholder="Semua status lead" /></div>
+                            <div><label class="label">Sales / Telesales</label><x-scroll-select name="owner_id" :options="$ownerOptions" :selected="request('owner_id')" placeholder="Semua sales / telesales" /></div>
                             <div><label class="label">Area</label><x-scroll-select name="area_id" :options="$areaOptions" :selected="request('area_id')" placeholder="Semua area" /></div>
                             <div><label class="label">Jenis customer</label><x-scroll-select name="business_type" :options="$customerTypeOptions" :selected="request('business_type')" placeholder="Semua jenis customer" /></div>
                             <div><label class="label">Sumber lead</label><x-scroll-select name="source" :options="$sourceOptions" :selected="request('source')" placeholder="Semua sumber" /></div>
-                            <div><label class="label">Status lead</label><x-scroll-select name="lead_status" :options="\App\Models\Lead::EDITABLE_STATUSES" :selected="request('lead_status')" placeholder="Semua status" /></div>
+                            <div><label class="label">Status customer</label><x-scroll-select name="conversion_scope" :options="$conversionOptions" :selected="request('conversion_scope')" placeholder="Semua status customer" /></div>
                         </div>
                         <div class="mt-5 flex justify-end gap-2 border-t border-slate-100 pt-4"><a href="{{ route('reports.index', ['view'=>'conversion']) }}" class="btn-secondary justify-center">Reset</a><button class="btn-primary min-w-32 justify-center">Terapkan</button></div>
                     </div>
@@ -167,35 +175,26 @@
                                 <div class="relative"><svg class="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="9" r="6"/><path d="m14 14 4 4"/></svg><input class="field pl-10" name="search" value="{{ request('search') }}" placeholder="Nama lead, perusahaan, PIC, atau ID..."></div>
                             </div>
                             <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                                <div><label class="label">Kategori lead</label><x-scroll-select name="conversion_scope" :options="$conversionOptions" :selected="request('conversion_scope')" placeholder="Semua kategori lead" /></div>
-                                <div><label class="label">Sales</label><x-scroll-select name="owner_id" :options="$ownerOptions" :selected="request('owner_id')" placeholder="Semua sales" /></div>
+                                <div><label class="label">Status lead</label><x-scroll-select name="lead_status" :options="\App\Models\Lead::EDITABLE_STATUSES" :selected="request('lead_status')" placeholder="Semua status lead" /></div>
+                                <div><label class="label">Sales / Telesales</label><x-scroll-select name="owner_id" :options="$ownerOptions" :selected="request('owner_id')" placeholder="Semua sales / telesales" /></div>
                                 <div><label class="label">Area</label><x-scroll-select name="area_id" :options="$areaOptions" :selected="request('area_id')" placeholder="Semua area" /></div>
                                 <div><label class="label">Jenis customer</label><x-scroll-select name="business_type" :options="$customerTypeOptions" :selected="request('business_type')" placeholder="Semua jenis customer" /></div>
                                 <div><label class="label">Sumber lead</label><x-scroll-select name="source" :options="$sourceOptions" :selected="request('source')" placeholder="Semua sumber" /></div>
-                                <div><label class="label">Status lead</label><x-scroll-select name="lead_status" :options="\App\Models\Lead::EDITABLE_STATUSES" :selected="request('lead_status')" placeholder="Semua status" /></div>
+                                <div><label class="label">Status customer</label><x-scroll-select name="conversion_scope" :options="$conversionOptions" :selected="request('conversion_scope')" placeholder="Semua status customer" /></div>
                             </div>
-                        </div>
-                        <div class="mb-3 border-t border-slate-100 pt-5"><h4 class="text-sm font-extrabold text-ink">Kolom laporan</h4><p class="mt-1 text-xs text-slate-500">Pilih kolom yang ingin ditampilkan.</p></div>
-                        <div class="grid gap-2 sm:grid-cols-2 md:grid-cols-3">
-                            @foreach(['lead_id'=>'ID','company_name'=>'Perusahaan','owner'=>'Sales','source'=>'Sumber lead','status'=>'Status','area'=>'Area','business_unit'=>'Jenis customer','created_at'=>'Tanggal masuk'] as $key=>$label)
-                                <label class="flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 px-3 py-3 text-sm font-semibold text-slate-700 transition hover:border-indigo-300 hover:bg-indigo-50/50">
-                                    <input type="checkbox" name="columns[]" value="{{ $key }}" checked class="size-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
-                                    {{ $label }}
-                                </label>
-                            @endforeach
                         </div>
                     </div>
                     <footer class="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-slate-50 px-5 py-4">
                         <span class="text-xs text-slate-500">Filter di atas hanya diterapkan pada file yang diunduh.</span>
                         <div class="flex gap-2">
-                            <button type="submit" formaction="{{ route('reports.export.csv') }}" class="btn-secondary gap-2 text-emerald-700"><span class="font-extrabold">X</span> Excel</button>
+                            <button type="submit" formaction="{{ route('reports.export.excel') }}" class="btn-secondary gap-2 text-emerald-700"><span class="font-extrabold">X</span> Excel</button>
                             <button type="submit" formaction="{{ route('reports.export.pdf') }}" formtarget="_blank" class="btn-primary gap-2"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg> PDF</button>
                         </div>
                     </footer>
                 </form>
             </div>
 
-            <section class="relative z-0 order-first grid gap-3 sm:grid-cols-2">
+            <section class="relative z-0 order-first grid gap-3 sm:grid-cols-3">
                 <div class="card flex items-center gap-4 px-5 py-4">
                     <div class="grid size-10 shrink-0 place-items-center rounded-xl bg-indigo-50 text-indigo-600">
                         <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
@@ -216,14 +215,15 @@
                     </div>
                 </div>
 
+                <div class="card px-5 py-4"><div class="flex items-baseline justify-between gap-3"><p class="text-sm font-bold text-ink">Belum menjadi customer</p><strong class="text-2xl text-ink">{{ number_format($activeLeads) }}</strong></div><p class="mt-1 text-xs text-slate-500">Lead yang belum menjadi customer</p></div>
             </section>
 
             <section id="detail-konversi" class="card overflow-hidden">
                 <div class="flex items-center justify-between border-b border-slate-100 px-5 py-4"><div><h3 class="section-title">Detail konversi</h3><p class="mt-1 text-xs text-slate-500">Satu baris mewakili satu lead.</p></div><span class="text-xs font-semibold text-slate-500">{{ $conversionRows->total() }} lead</span></div>
-                <div class="overflow-x-auto"><table class="w-full min-w-[1160px] text-left"><thead class="table-head"><tr><th class="px-5 py-3">Lead / perusahaan</th><th class="px-4 py-3">Sumber lead</th><th class="px-4 py-3">Sales</th><th class="px-4 py-3">Area</th><th class="px-4 py-3">Tanggal masuk</th><th class="px-4 py-3">Status konversi</th><th class="px-4 py-3">Produk deal</th><th class="px-5 py-3 text-right">Nilai deal</th></tr></thead><tbody class="divide-y divide-slate-100">
+                <div class="overflow-x-auto"><table class="w-full min-w-[1160px] text-left"><thead class="table-head"><tr><th class="px-5 py-3">Lead / perusahaan</th><th class="px-4 py-3">Sumber lead</th><th class="px-4 py-3">Sales / Telesales</th><th class="px-4 py-3">Area</th><th class="px-4 py-3">Tanggal masuk</th><th class="px-4 py-3">Status lead</th><th class="px-4 py-3">Status customer</th><th class="px-4 py-3">Produk deal</th><th class="px-5 py-3 text-right">Nilai deal</th></tr></thead><tbody class="divide-y divide-slate-100">
                     @forelse($conversionRows as $lead) @php($customer=$lead->convertedCustomer)
-                        <tr class="hover:bg-slate-50/70"><td class="px-5 py-3.5"><div class="text-sm font-bold text-ink">{{ $lead->company_name }}</div><div class="mt-1 text-[10px] text-slate-400">{{ $customer?->customer_id ?? $lead->lead_id }}@if($lead->businessUnit) · {{ $lead->businessUnit->name }}@endif</div></td><td class="px-4 py-3.5"><span class="badge bg-indigo-50 text-indigo-700">{{ $sourceOptions[$lead->source] ?? str($lead->source)->replace('_',' ')->title() }}</span></td><td class="px-4 py-3.5 text-xs font-semibold text-slate-700">{{ $lead->owner?->name ?? '—' }}</td><td class="px-4 py-3.5 text-xs text-slate-600">{{ $lead->area?->name ?? '—' }}</td><td class="px-4 py-3.5 text-xs text-slate-600">{{ $lead->created_at->format('d M Y') }}</td><td class="px-4 py-3.5">@if(!$customer)<span class="badge {{ $lead->status === 'leads_adds' ? 'bg-violet-50 text-violet-700' : 'bg-amber-50 text-amber-700' }}">{{ $lead->statusLabel() }}</span>@elseif(($customer->deal_items_count ?? 0)>0)<span class="badge bg-emerald-50 text-emerald-700">Sudah deal</span>@else<span class="badge bg-sky-50 text-sky-700">Sudah jadi customer</span>@endif</td><td class="px-4 py-3.5 text-xs font-bold text-slate-700">{{ number_format($customer?->deal_items_count ?? 0) }}</td><td class="px-5 py-3.5 text-right text-xs font-extrabold text-ink">Rp {{ number_format((float) ($customer?->deal_value ?? 0),0,',','.') }}</td></tr>
-                    @empty <tr><td colspan="8" class="p-14 text-center"><div class="text-sm font-bold text-slate-600">Belum ada data pada filter ini</div><div class="mt-1 text-xs text-slate-400">Ubah periode atau filter untuk melihat data lain.</div></td></tr> @endforelse
+                        <tr class="hover:bg-slate-50/70"><td class="px-5 py-3.5"><div class="text-sm font-bold text-ink">{{ $lead->company_name }}</div><div class="mt-1 text-[10px] text-slate-400">{{ $customer?->customer_id ?? $lead->lead_id }}@if($lead->businessUnit) · {{ $lead->businessUnit->name }}@endif</div></td><td class="px-4 py-3.5"><span class="badge bg-indigo-50 text-indigo-700">{{ $sourceOptions[$lead->source] ?? str($lead->source)->replace('_',' ')->title() }}</span></td><td class="px-4 py-3.5 text-xs font-semibold text-slate-700">{{ $lead->owner?->name ?? '—' }}</td><td class="px-4 py-3.5 text-xs text-slate-600">{{ $lead->area?->name ?? '—' }}</td><td class="px-4 py-3.5 text-xs text-slate-600">{{ $lead->created_at->format('d M Y') }}</td><td class="px-4 py-3.5"><span class="badge bg-slate-100 text-slate-700">{{ $lead->reportStatusLabel() }}</span></td><td class="px-4 py-3.5"><span class="badge {{ $customer ? 'bg-sky-50 text-sky-700' : 'bg-slate-100 text-slate-600' }}">{{ $customer ? 'Sudah menjadi customer' : 'Belum menjadi customer' }}</span></td><td class="px-4 py-3.5 text-xs font-bold text-slate-700">{{ number_format($customer?->deal_items_count ?? 0) }}</td><td class="px-5 py-3.5 text-right text-xs font-extrabold text-ink">Rp {{ number_format((float) ($customer?->deal_value ?? 0),0,',','.') }}</td></tr>
+                    @empty <tr><td colspan="9" class="p-14 text-center"><div class="text-sm font-bold text-slate-600">Belum ada data pada filter ini</div><div class="mt-1 text-xs text-slate-400">Ubah periode atau filter untuk melihat data lain.</div></td></tr> @endforelse
                 </tbody></table></div>
                 @if($conversionRows->hasPages())<div class="border-t border-slate-100 px-5 py-4">{{ $conversionRows->links() }}</div>@endif
             </section>

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>@yield('title', 'Dashboard') · Unified CRM</title>
+    <title>@yield('title', 'Dashboard') · CRM {{ $tenant?->name }}</title>
     <script>
         (() => {
             const saved = localStorage.getItem('crm-theme');
@@ -21,9 +21,8 @@
     $groups = [
         'Utama' => [
             ['dashboard', 'Ringkasan', 'dashboard.view', 'home'],
-            ['tasks.index', 'Task', 'tasks.view', 'check'],
+            [$user->canAccess('approvals.view') ? 'approvals.index' : 'tasks.index', 'Approval & Task', $user->canAccess('approvals.view') ? 'approvals.view' : 'tasks.view', 'check'],
             ['notifications.index', 'Notifikasi', null, 'bell'],
-            ['approvals.index', 'Approval', 'approvals.view', 'approval'],
         ],
         'CRM & Penjualan' => [
             [$user->canAccess('customers.view') ? 'customers.index' : 'leads.index', 'Customer & Lead', $user->canAccess('customers.view') ? 'customers.view' : 'leads.view', 'customer'],
@@ -36,7 +35,7 @@
         ],
         'Administrasi' => [
             ['users.index', 'Pengguna', 'admin.manage', 'users'],
-            ['areas.index', 'Area & Cabang', 'admin.manage', 'area'],
+            ['areas.index', 'Area', 'admin.manage', 'area'],
             ['roles.index', 'Role & Hak Akses', 'admin.manage', 'shield'],
             ['settings.customer-types.index', 'Settings', 'admin.manage', 'settings'],
             ['audit.index', 'Audit Log', 'admin.manage', 'audit'],
@@ -68,12 +67,13 @@
     ])->filter(fn ($item) => $user->canAccess($item[3]));
     $mobileItems = collect([
         ['dashboard','Ringkasan','home','dashboard.view'],
-        ['tasks.index','Task','check','tasks.view'],
+        [$user->canAccess('approvals.view') ? 'approvals.index' : 'tasks.index','Approval & Task','check',$user->canAccess('approvals.view') ? 'approvals.view' : 'tasks.view'],
         [$user->canAccess('customers.view') ? 'customers.index' : 'leads.index','Customer & Lead','customer',$user->canAccess('customers.view') ? 'customers.view' : 'leads.view'],
         ['opportunities.index','Opportunity','opportunity','opportunities.view'],
     ])->filter(fn ($item) => $user->canAccess($item[3]));
     $isNavActive = function (string $route): bool {
         return match ($route) {
+            'tasks.index', 'approvals.index' => request()->routeIs('tasks.*', 'approvals.*'),
             'opportunities.index' => request()->routeIs('opportunities.index', 'opportunities.create', 'opportunities.show', 'opportunities.kanban', 'pipelines.*'),
             'users.index' => request()->routeIs('users.index', 'users.create', 'users.edit'),
             'users.active' => request()->routeIs('users.active'),
@@ -112,10 +112,10 @@
 }" class="min-h-screen">
     <div x-show="sidebar" x-cloak @click="sidebar=false" class="fixed inset-0 z-40 bg-slate-950/40 backdrop-blur-sm lg:hidden"></div>
 
-    <aside :class="sidebar ? 'translate-x-0' : '-translate-x-full'" class="group/sidebar fixed inset-y-0 left-0 z-50 flex w-[248px] flex-col overflow-visible border-r border-slate-200 bg-white transition-[width,transform,box-shadow] duration-200 ease-out lg:w-[72px] lg:translate-x-0 lg:hover:w-[248px] lg:hover:shadow-2xl lg:hover:shadow-slate-950/10">
+    <aside :class="sidebar ? 'translate-x-0' : '-translate-x-full'" class="group/sidebar fixed inset-y-0 left-0 z-[120] flex w-[248px] flex-col overflow-hidden border-r border-slate-200 bg-white transition-[width,transform,box-shadow] duration-200 ease-out lg:w-[72px] lg:translate-x-0 lg:hover:w-[248px] lg:hover:shadow-2xl lg:hover:shadow-slate-950/10">
         <div class="flex h-[72px] items-center gap-3 overflow-hidden border-b border-slate-100 px-5 lg:justify-center lg:px-3 lg:group-hover/sidebar:justify-start lg:group-hover/sidebar:px-5">
-            <div class="grid size-9 place-items-center rounded-xl bg-brand-600 text-xs font-black tracking-tight text-white shadow-sm">UC</div>
-            <div class="min-w-0 flex-1 transition-all duration-200 lg:max-w-0 lg:overflow-hidden lg:whitespace-nowrap lg:opacity-0 lg:group-hover/sidebar:max-w-40 lg:group-hover/sidebar:opacity-100"><div class="truncate text-sm font-extrabold tracking-tight text-ink">Unified CRM</div><div class="whitespace-nowrap text-[9px] font-bold uppercase tracking-[.18em] text-slate-400">Sales workspace</div></div>
+            <div class="grid size-9 shrink-0 place-items-center overflow-hidden rounded-xl bg-brand-600 text-xs font-black tracking-tight text-white shadow-sm">@if($tenant?->logo_path)<img src="{{ asset('storage/'.$tenant->logo_path) }}" alt="Logo {{ $tenant->name }}" class="size-full bg-white object-contain">@else{{ mb_strtoupper(mb_substr($tenant?->name ?? 'CRM', 0, 1)) }}@endif</div>
+            <div class="min-w-0 flex-1 transition-all duration-200 lg:max-w-0 lg:overflow-hidden lg:whitespace-nowrap lg:opacity-0 lg:group-hover/sidebar:max-w-40 lg:group-hover/sidebar:opacity-100"><div class="truncate text-sm font-extrabold tracking-tight text-ink">CRM</div><div class="truncate text-[9px] font-bold uppercase tracking-[.12em] text-slate-400">{{ $tenant?->name }}</div></div>
             <button @click="sidebar=false" class="icon-btn lg:hidden" aria-label="Tutup menu">×</button>
         </div>
 
@@ -129,7 +129,7 @@
                         @foreach($visibleItems as [$route, $label, $permission, $icon])
                             @php($active = $isNavActive($route))
                             @if($route === 'settings.customer-types.index')
-                            @php($active = request()->routeIs('settings.customer-types.*', 'settings.activity-evidence.*', 'settings.validation.*', 'pipelines.*'))
+                            @php($active = request()->routeIs('settings.customer-types.*', 'settings.activity-evidence.*', 'settings.validation.*', 'pipelines.*', 'tenants.*'))
                             <button type="button" data-settings-nav title="{{ $label }}" @click="settingsOpen = !settingsOpen" :aria-expanded="settingsOpen" class="nav-item relative w-full {{ $active ? 'nav-item-active' : '' }} lg:justify-center lg:gap-0 lg:px-0 lg:group-hover/sidebar:justify-start lg:group-hover/sidebar:gap-3 lg:group-hover/sidebar:px-3">
                                 <svg class="size-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">{!! $icons[$icon] !!}</svg>
                                 <span class="min-w-0 overflow-hidden whitespace-nowrap text-left opacity-100 transition-all duration-200 lg:max-w-0 lg:flex-none lg:opacity-0 lg:group-hover/sidebar:max-w-40 lg:group-hover/sidebar:flex-1 lg:group-hover/sidebar:opacity-100">{{ $label }}</span>
@@ -152,6 +152,16 @@
                                     <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14M12 5v14"/><circle cx="12" cy="12" r="9"/></svg>
                                     <span>Validasi Data</span>
                                 </a>
+                                <a href="{{ route('settings.operational.index') }}" class="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[11px] font-bold transition hover:bg-brand-50 hover:text-brand-700 {{ request()->routeIs('settings.operational.*') ? 'bg-brand-50 text-brand-700' : 'text-slate-500' }}">
+                                    <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19V9m6 10V5m6 14v-7m4 7H2"/><path d="m4 6 6-3 6 5 4-3"/></svg><span>Operasional</span>
+                                </a>
+                                <a href="{{ route('settings.kpi-metrics.index') }}" class="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[11px] font-bold transition hover:bg-brand-50 hover:text-brand-700 {{ request()->routeIs('settings.kpi-metrics.*') ? 'bg-brand-50 text-brand-700' : 'text-slate-500' }}"><svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19V9m6 10V5m6 14v-7m4 7H2"/></svg><span>KPI Metrics</span></a>
+                                @if($user->isMasterAdmin())
+                                <a href="{{ route('tenants.index') }}" class="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[11px] font-bold transition hover:bg-brand-50 hover:text-brand-700 {{ request()->routeIs('tenants.*') ? 'bg-brand-50 text-brand-700' : 'text-slate-500' }}">
+                                    <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V8l8-4 8 4v12M8 20v-5h8v5M8 10h.01M12 10h.01M16 10h.01"/></svg>
+                                    <span>Perusahaan</span>
+                                </a>
+                                @endif
                             </div>
                             @continue
                             @endif
@@ -159,8 +169,8 @@
                                 <svg class="size-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">{!! $icons[$icon] !!}</svg>
                                 <span class="min-w-0 overflow-hidden whitespace-nowrap opacity-100 transition-all duration-200 lg:max-w-0 lg:flex-none lg:opacity-0 lg:group-hover/sidebar:max-w-40 lg:group-hover/sidebar:flex-1 lg:group-hover/sidebar:opacity-100">{{ $label }}</span>
                                 @if($route === 'notifications.index')<span data-notification-count class="{{ $unread ? 'grid' : 'hidden' }} min-w-5 place-items-center rounded-full bg-rose-500 px-1.5 py-0.5 text-[9px] font-bold text-white lg:absolute lg:right-0 lg:top-0 lg:min-w-4 lg:px-1 lg:group-hover/sidebar:static lg:group-hover/sidebar:min-w-5 lg:group-hover/sidebar:px-1.5">{{ $unread }}</span>@endif
-                                @if($route === 'approvals.index')
-                                    @if($approvalWaiting)<span class="grid min-w-5 place-items-center rounded-full bg-amber-500 px-1.5 py-0.5 text-[9px] font-bold text-white lg:absolute lg:right-0 lg:top-0 lg:min-w-4 lg:px-1 lg:group-hover/sidebar:static lg:group-hover/sidebar:min-w-5 lg:group-hover/sidebar:px-1.5">{{ $approvalWaiting }}</span>@endif
+                                @if(in_array($route, ['tasks.index', 'approvals.index'], true))
+                                    @if($workWaiting)<span class="grid min-w-5 place-items-center rounded-full bg-amber-500 px-1.5 py-0.5 text-[9px] font-bold text-white lg:absolute lg:right-0 lg:top-0 lg:min-w-4 lg:px-1 lg:group-hover/sidebar:static lg:group-hover/sidebar:min-w-5 lg:group-hover/sidebar:px-1.5">{{ $workWaiting }}</span>@endif
                                 @endif
                             </a>
                         @endforeach
@@ -169,13 +179,16 @@
             @endforeach
         </nav>
 
-        <div class="border-t border-slate-100 p-3">
+        <div class="border-t border-slate-100 p-3" @click.outside="profile=false">
             <button @click="profile=!profile" title="{{ $user->name }}" class="flex w-full items-center gap-3 rounded-xl p-2 text-left transition hover:bg-slate-50 lg:justify-center lg:gap-0 lg:group-hover/sidebar:justify-start lg:group-hover/sidebar:gap-3">
-                <div class="grid size-9 shrink-0 place-items-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 text-xs font-extrabold text-white">{{ mb_substr($user->name, 0, 1) }}</div>
-                <div class="min-w-0 flex-1 transition-all duration-200 lg:max-w-0 lg:overflow-hidden lg:whitespace-nowrap lg:opacity-0 lg:group-hover/sidebar:max-w-40 lg:group-hover/sidebar:opacity-100"><div class="truncate text-xs font-bold text-ink">{{ $user->name }}</div><div class="truncate text-[10px] capitalize text-slate-400">{{ str_replace('_', ' ', $user->authority_level) }}</div></div>
+                <div class="grid size-9 shrink-0 place-items-center overflow-hidden rounded-full {{ $user->avatar_path ? 'border border-slate-200 bg-white' : 'bg-gradient-to-br from-indigo-500 to-violet-500' }} text-xs font-extrabold text-white">@if($user->avatar_path)<img src="{{ asset('storage/'.$user->avatar_path) }}" alt="" class="size-full object-cover">@else{{ mb_substr($user->name, 0, 1) }}@endif</div>
+                <div class="min-w-0 flex-1 transition-all duration-200 lg:max-w-0 lg:overflow-hidden lg:whitespace-nowrap lg:opacity-0 lg:group-hover/sidebar:max-w-40 lg:group-hover/sidebar:opacity-100"><div class="truncate text-xs font-bold text-ink">{{ $user->name }}</div><div class="truncate text-[10px] text-slate-400">{{ $user->roleNames() ?: ucfirst(str_replace('_', ' ', $user->authority_level)) }}</div></div>
                 <svg class="size-4 shrink-0 text-slate-400 transition-all duration-200 lg:w-0 lg:overflow-hidden lg:opacity-0 lg:group-hover/sidebar:w-4 lg:group-hover/sidebar:opacity-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
             </button>
-            <form x-show="profile" x-cloak method="POST" action="{{ route('logout') }}" class="mt-1 lg:hidden lg:group-hover/sidebar:block">@csrf<button class="w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-rose-600 hover:bg-rose-50">Keluar dari aplikasi</button></form>
+            <div x-show="profile" x-cloak class="mt-1 space-y-1 lg:hidden lg:group-hover/sidebar:block">
+                <a href="{{ route('profile.edit') }}" class="block w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-slate-600 hover:bg-slate-50 hover:text-brand-700">Profil saya</a>
+                <form method="POST" action="{{ route('logout') }}">@csrf<button class="w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-rose-600 hover:bg-rose-50">Keluar dari aplikasi</button></form>
+            </div>
         </div>
     </aside>
 

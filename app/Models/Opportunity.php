@@ -66,11 +66,7 @@ class Opportunity extends Model
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
         if ($user->isMasterAdmin()) return $query;
-        if (in_array($user->authority_level, ['manager', 'supervisor'], true)) {
-            return $query->where(fn ($query) => $query
-                ->whereHas('customer', fn ($q) => $q->visibleTo($user))
-                ->orWhereJsonContains('participants', $user->id));
-        }
+        if (in_array($user->authority_level, ['manager', 'supervisor'], true)) return $query;
         if ($user->user_type === 'frontliner') {
             return $query->where(fn ($query) => $query
                 ->where('owner_id', $user->id)

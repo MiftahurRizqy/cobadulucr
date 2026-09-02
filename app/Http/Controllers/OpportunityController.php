@@ -12,6 +12,7 @@ use App\Models\Product;
 use App\Models\User;
 use App\Models\SystemSetting;
 use App\Services\CrmNotifier;
+use App\Services\CustomProductProgress;
 use App\Services\StageTransitionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -41,11 +42,11 @@ class OpportunityController extends Controller
             'opportunities' => $opportunities,
             'pipelines' => Pipeline::where('is_active', true)->get(),
             'stages' => PipelineStage::where('is_active', true)->with('pipeline')->orderBy('pipeline_id')->orderBy('position')->get(),
-            'owners' => User::where('is_active', true)->whereHas('roles', fn ($q) => $q->whereIn('slug', ['sales', 'csa']))->orderBy('name')->get(),
+            'owners' => User::where('is_active', true)->whereHas('roles', fn ($q) => $q->whereIn('slug', ['sales', 'telesales', 'csa']))->orderBy('name')->get(),
         ]);
     }
 
-    public function kanban(Request $request)
+    public function kanban(Request $request, CustomProductProgress $customProgress)
     {
         $pipeline = Pipeline::with('stages')->findOrFail($request->pipeline ?? Pipeline::where('is_active', true)->value('id'));
         $opportunities = Opportunity::visibleTo($request->user())
@@ -56,7 +57,46 @@ class OpportunityController extends Controller
             ->get()
             ->groupBy('pipeline_stage_id');
         $pipelines = Pipeline::where('is_active', true)->orderBy('name')->get();
-        return view('opportunities.kanban', compact('pipeline', 'pipelines', 'opportunities'));
+        $opportunities->flatten()->each(function (Opportunity $opportunity) use ($customProgress, $pipeline) {
+            if ($pipeline->uses_pipeline_for_custom_progress) {
+                $opportunity->setAttribute('custom_progress_summary', null);
+                $opportunity->setAttribute('custom_progress_detail', null);
+
+                return;
+            }
+
+            $customItems = $opportunity->items->where('product_type', 'custom');
+            $opportunity->setAttribute('custom_progress_summary', $customItems->map(fn ($item) => $customProgress->label($item->custom_stage))->unique()->join(', '));
+            $opportunity->setAttribute('custom_progress_detail', $customItems->map(fn ($item) => $item->product_name.' — '.$customProgress->label($item->custom_stage))->join(' · '));
+        });
+        return view('opportunities.kanban', compact('pipeline', 'pipelines', 'opportunities', 'customProgress'));
+    }
+
+    public function customProgress(Request $request, CustomProductProgress $customProgress)
+    {
+        $items = OpportunityItem::with(['opportunity.customer', 'opportunity.pipeline', 'opportunity.owner', 'opportunity.stage'])
+            ->where('product_type', 'custom')
+            ->when($request->stage, function ($query, $stage) {
+                $query->where(function ($items) use ($stage) {
+                    $items->whereHas('opportunity', fn ($opportunities) => $opportunities
+                        ->whereHas('pipeline', fn ($pipelines) => $pipelines->where('uses_pipeline_for_custom_progress', true))
+                        ->where('pipeline_stage_id', $stage))
+                        ->orWhere(function ($otherPipelineItems) use ($stage) {
+                            $otherPipelineItems->where('custom_stage', $stage)
+                                ->whereHas('opportunity.pipeline', fn ($pipelines) => $pipelines->where('uses_pipeline_for_custom_progress', false));
+                        });
+                });
+            })
+            ->latest()->paginate(30)->withQueryString();
+
+        $items->each(function (OpportunityItem $item) use ($customProgress) {
+            $stage = $item->opportunity->pipeline->uses_pipeline_for_custom_progress
+                ? (string) $item->opportunity->pipeline_stage_id
+                : $item->custom_stage;
+
+            $item->setAttribute('progress_stage_label', $customProgress->label($stage));
+        });
+        return view('opportunities.custom-progress', compact('items', 'customProgress'));
     }
 
     public function create(Request $request)
@@ -96,6 +136,8 @@ class OpportunityController extends Controller
                 'product_name' => $request->input('product_name') ?: 'Produk belum ditentukan',
                 'quantity' => $quantity,
                 'quantity_unit' => $request->input('quantity_unit', 'pcs'),
+                'product_type' => $request->input('product_type', 'regular'),
+                'custom_specification' => $request->input('custom_specification'),
                 'target_price' => $request->input('target_price'),
                 'photo' => $request->file('photo'),
                 'unit_price' => $request->filled('offered_price')
@@ -118,7 +160,7 @@ class OpportunityController extends Controller
             $data['owner_id'] ??= $customer->sales_owner_id ?: $request->user()->id;
             abort_unless(
                 User::whereKey($data['owner_id'])->where('is_active', true)
-                    ->whereHas('roles', fn ($query) => $query->where('slug', 'sales'))->exists()
+                    ->whereHas('roles', fn ($query) => $query->whereIn('slug', ['sales', 'telesales']))->exists()
                 || $data['owner_id'] === $request->user()->id,
                 422,
                 'Penanggung jawab opportunity harus user Sales yang aktif.'
@@ -131,7 +173,8 @@ class OpportunityController extends Controller
             ->values()
             ->all();
 
-        $normalizedItems = $items->map(function (array $item) {
+        $customProgress = app(CustomProductProgress::class);
+        $normalizedItems = $items->map(function (array $item) use ($customProgress) {
             $product = ! empty($item['product_id']) ? Product::find($item['product_id']) : null;
             $quantity = (int) ($item['quantity'] ?? 0);
             $targetPrice = (float) ($item['target_price'] ?? 0);
@@ -140,6 +183,9 @@ class OpportunityController extends Controller
                 'product_id' => $product?->id,
                 'product_name' => ($item['product_name'] ?? null) ?: $product?->name,
                 'market_segment' => $item['market_segment'] ?? null,
+                'product_type' => $item['product_type'] ?? 'regular',
+                'custom_specification' => ($item['product_type'] ?? 'regular') === 'custom' ? ($item['custom_specification'] ?? null) : null,
+                'custom_stage' => ($item['product_type'] ?? 'regular') === 'custom' ? $customProgress->initialStage() : null,
                 'photo_path' => isset($item['photo']) ? $item['photo']->store('opportunity-products', 'public') : null,
                 'quantity' => $quantity,
                 'quantity_unit' => $item['quantity_unit'] ?? $product?->unit ?? 'pcs',
@@ -182,7 +228,7 @@ class OpportunityController extends Controller
         return redirect()->route('opportunities.show', $opportunity)->with('success', 'Opportunity berhasil dibuat.');
     }
 
-    public function show(Opportunity $opportunity)
+    public function show(Opportunity $opportunity, CustomProductProgress $customProgress)
     {
         $this->authorizeOpportunity($opportunity);
         $opportunity->load(['customer', 'pipeline.stages.rules', 'stage', 'owner', 'items.product', 'activities.user', 'activities.attachments', 'tasks.assignees', 'stageHistories.fromStage', 'stageHistories.toStage', 'stageHistories.changedBy']);
@@ -199,7 +245,7 @@ class OpportunityController extends Controller
             ->values();
         $quotationHistory = $productHistory->filter(fn (AuditLog $log) => $log->action === 'updated' && data_get($log->old_values, 'unit_price') !== data_get($log->new_values, 'unit_price'))->values();
 
-        return view('opportunities.show', compact('opportunity', 'canSetQuotation', 'quotationHistory', 'productHistory'));
+        return view('opportunities.show', compact('opportunity', 'canSetQuotation', 'quotationHistory', 'productHistory', 'customProgress'));
     }
 
     public function updateQuotation(Request $request, Opportunity $opportunity)
@@ -278,12 +324,23 @@ class OpportunityController extends Controller
         return back()->with('success', 'Status '.$item->product_name.' diubah menjadi '.$label.'.');
     }
 
+    public function updateItemCustomStage(Request $request, Opportunity $opportunity, OpportunityItem $item, CustomProductProgress $customProgress)
+    {
+        $this->authorizeOpportunity($opportunity);
+        abort_unless((int) $item->opportunity_id === (int) $opportunity->id && $item->product_type === 'custom', 404);
+        $data = $request->validate(['custom_stage' => ['required', Rule::in(collect($customProgress->stages())->pluck('key')->all())]]);
+        $item->update(['custom_stage' => $data['custom_stage']]);
+        return back()->with('success', 'Progres produk Custom diperbarui.');
+    }
+
     public function storeItem(Request $request, Opportunity $opportunity)
     {
         $this->authorizeOpportunity($opportunity);
         $data = $request->validate([
             'product_name' => ['required', 'string', 'max:255'],
-            'market_segment' => ['nullable', Rule::in(['drink', 'food'])],
+            'market_segment' => ['nullable', Rule::in(['drink', 'food', 'industry'])],
+            'product_type' => ['nullable', Rule::in(array_keys(OpportunityItem::PRODUCT_TYPES))],
+            'custom_specification' => ['nullable', 'string', 'max:2000'],
             'quantity' => ['required', 'integer', 'min:1'],
             'quantity_unit' => ['required', Rule::in(array_keys(Opportunity::QUANTITY_UNITS))],
             'target_price' => ['nullable', 'numeric', 'min:0'],
@@ -293,6 +350,13 @@ class OpportunityController extends Controller
 
         $quantity = (int) $data['quantity'];
         $unitPrice = (float) ($data['unit_price'] ?? 0);
+        $data['product_type'] ??= 'regular';
+        if ($data['product_type'] !== 'custom') {
+            $data['custom_specification'] = null;
+            $data['custom_stage'] = null;
+        } else {
+            $data['custom_stage'] = app(CustomProductProgress::class)->initialStage();
+        }
         if (isset($data['photo'])) {
             $data['photo_path'] = $data['photo']->store('opportunity-products', 'public');
         }
@@ -336,7 +400,9 @@ class OpportunityController extends Controller
         abort_unless((int) $item->opportunity_id === (int) $opportunity->id, 404);
         $data = $request->validate([
             'product_name' => ['required', 'string', 'max:255'],
-            'market_segment' => ['nullable', Rule::in(['drink', 'food'])],
+            'market_segment' => ['nullable', Rule::in(['drink', 'food', 'industry'])],
+            'product_type' => ['nullable', Rule::in(array_keys(OpportunityItem::PRODUCT_TYPES))],
+            'custom_specification' => ['nullable', 'string', 'max:2000'],
             'quantity' => ['required', 'integer', 'min:1'],
             'quantity_unit' => ['required', Rule::in(array_keys(Opportunity::QUANTITY_UNITS))],
             'target_price' => ['nullable', 'numeric', 'min:0'],
@@ -348,6 +414,13 @@ class OpportunityController extends Controller
             $data['photo_path'] = $data['photo']->store('opportunity-products', 'public');
         }
         unset($data['photo']);
+        $data['product_type'] ??= 'regular';
+        if ($data['product_type'] !== 'custom') {
+            $data['custom_specification'] = null;
+            $data['custom_stage'] = null;
+        } elseif ($item->product_type !== 'custom') {
+            $data['custom_stage'] = app(CustomProductProgress::class)->initialStage();
+        }
         $data['unit_price'] = (float) ($data['unit_price'] ?? 0);
         $data['subtotal'] = (int) $data['quantity'] * $data['unit_price'];
         $item->update($data);
@@ -397,7 +470,9 @@ class OpportunityController extends Controller
             'items' => ['required', 'array', 'min:1'],
             'items.*.product_id' => ['nullable', 'exists:products,id'],
             'items.*.product_name' => ['nullable', 'string', 'max:255', 'required_without:items.*.product_id'],
-            'items.*.market_segment' => ['nullable', Rule::in(['drink', 'food'])],
+            'items.*.market_segment' => ['nullable', Rule::in(['drink', 'food', 'industry'])],
+            'items.*.product_type' => ['nullable', Rule::in(array_keys(OpportunityItem::PRODUCT_TYPES))],
+            'items.*.custom_specification' => ['nullable', 'string', 'max:2000'],
             'items.*.quantity' => ['required', 'integer', 'min:1'],
             'items.*.quantity_unit' => ['required', Rule::in(array_keys(Opportunity::QUANTITY_UNITS))],
             'items.*.target_price' => ['nullable', 'numeric', 'min:0'],
@@ -420,7 +495,7 @@ class OpportunityController extends Controller
             'customers' => Customer::visibleTo($user)->orderBy('company_name')->get(),
             'pipelines' => Pipeline::where('is_active', true)->with('stages')->get(),
             'users' => $canAssignOwner
-                ? User::where('is_active', true)->whereHas('roles', fn ($query) => $query->where('slug', 'sales'))->orderBy('name')->get()
+                ? User::where('is_active', true)->whereHas('roles', fn ($query) => $query->whereIn('slug', ['sales', 'telesales']))->orderBy('name')->get()
                 : collect([$user]),
             'canAssignOwner' => $canAssignOwner,
             'collaborationUsers' => User::where('is_active', true)

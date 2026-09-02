@@ -18,22 +18,104 @@ use App\Models\Product;
 use App\Models\Role;
 use App\Models\RoomMember;
 use App\Models\Task;
+use App\Models\Tenant;
 use App\Models\User;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Storage;
+use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Worksheet\PageSetup;
 use Tests\TestCase;
 
 class CrmTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_report_owner_filter_includes_telesales_without_leads(): void
+    {
+        $admin = User::factory()->create(['authority_level' => 'master_admin', 'is_active' => true]);
+        $telesales = User::factory()->create(['name' => 'New Telesales', 'is_active' => true]);
+        $role = Role::firstOrCreate(['slug' => 'telesales'], ['name' => 'Telesales']);
+        $telesales->roles()->attach($role);
+        $this->actingAs($admin)->get(route('reports.index'))->assertOk()
+            ->assertViewHas('owners', fn ($owners) => $owners->contains('id', $telesales->id));
+        $this->get(route('reports.index', ['owner_id' => $telesales->id]))->assertOk()
+            ->assertViewHas('totalLeads', 0);
+
+        $staff = User::factory()->create(['authority_level' => 'staff', 'is_active' => true]);
+        $staff->roles()->attach($role);
+        $permission = Permission::firstOrCreate(['key' => 'reports.view'], ['label' => 'View Reports', 'module' => 'reports', 'action' => 'view']);
+        $role->permissions()->syncWithoutDetaching([$permission->id]);
+        $this->actingAs($staff)->get(route('reports.index'))->assertOk()
+            ->assertViewHas('owners', fn ($owners) => $owners->contains('id', $staff->id) && ! $owners->contains('id', $telesales->id));
+    }
+
+    public function test_leads_adds_keeps_converted_leads_in_report_and_exports(): void
+    {
+        $admin = User::factory()->create(['authority_level' => 'master_admin', 'is_active' => true]);
+        for ($i = 1; $i <= 10; $i++) {
+            $lead = Lead::create([
+                'company_name' => 'Acquisition '.$i,
+                'contact_name' => 'PIC', 'phone' => '08123456789',
+                'source' => 'referral', 'status' => $i <= 5 ? 'converted' : 'leads_adds',
+                'status_before_conversion' => $i <= 5 ? 'leads_adds' : null,
+                'owner_id' => $admin->id, 'created_by' => $admin->id,
+            ]);
+            if ($i <= 5) {
+                $this->customer(['company_name' => 'Customer '.$i, 'converted_from_lead_id' => $lead->id, 'created_by' => $admin->id]);
+            }
+        }
+
+        foreach (['conversion_scope', 'lead_status'] as $filter) {
+            $params = [$filter => 'leads_adds'];
+            $this->actingAs($admin)->get(route('reports.index', $params))
+                ->assertOk()->assertViewHas('leadsAdds', 10)
+                ->assertViewHas('convertedCustomers', 5)->assertViewHas('activeLeads', 5)
+                ->assertViewHas('conversionRows', fn ($rows) => $rows->total() === 10);
+            $this->get(route('reports.export.pdf', $params))->assertOk()
+                ->assertSee('PT Wiguna Inti Batara Utama')->assertSee('Diterbitkan')
+                ->assertViewHas('summary', ['Lead Masuk' => 10, 'Menjadi customer' => 5, 'Belum menjadi customer' => 5, 'Konversi' => '50%'])
+                ->assertViewHas('rows', fn ($rows) => $rows->count() === 10);
+            $csv = $this->get(route('reports.export.csv', $params))->assertOk()->streamedContent();
+            $this->assertStringContainsString('"Lead Masuk";10', $csv);
+            $this->assertStringContainsString('PT Wiguna Inti Batara Utama', $csv);
+            $this->assertStringContainsString('"Menjadi customer";5', $csv);
+            $this->assertStringContainsString('"Belum menjadi customer";5', $csv);
+            for ($i = 1; $i <= 10; $i++) {
+                $this->assertStringContainsString('Acquisition '.$i, $csv);
+            }
+        }
+    }
+
     public function test_guest_is_redirected_to_login(): void
     {
         $this->get('/')->assertRedirect('/login');
-        $this->get('/login')->assertOk()->assertSee('Unified CRM');
+        $this->get('/login')->assertOk()->assertSee('PT Wiguna Inti Batara Utama');
+    }
+
+    public function test_report_preserves_every_lead_status_separately_from_customer_status(): void
+    {
+        $admin = User::factory()->create(['authority_level' => 'master_admin', 'is_active' => true]);
+        foreach (Lead::EDITABLE_STATUSES as $status => $label) {
+            $lead = Lead::create([
+                'company_name' => 'History '.$status, 'contact_name' => 'PIC', 'phone' => '08123456789',
+                'source' => 'referral', 'status' => 'converted', 'status_before_conversion' => $status,
+                'owner_id' => $admin->id, 'created_by' => $admin->id,
+            ]);
+            $this->customer(['company_name' => 'History '.$status, 'converted_from_lead_id' => $lead->id, 'created_by' => $admin->id]);
+            $params = ['lead_status' => $status];
+            $this->actingAs($admin)->get(route('reports.index', $params))->assertOk()
+                ->assertViewHas('conversionRows', fn ($rows) => $rows->total() === 1)
+                ->assertSee($label)->assertSee('Sudah menjadi customer');
+            $this->get(route('reports.export.pdf', $params))->assertOk()->assertSee($label)
+                ->assertSee('Status Lead')->assertSee('Status Customer')->assertSee('Sudah menjadi customer');
+            $csv = $this->get(route('reports.export.csv', $params))->assertOk()->streamedContent();
+            $this->assertStringContainsString($label, $csv);
+            $this->assertStringContainsString('Sudah menjadi customer', $csv);
+        }
+        $this->assertSame('Tidak tercatat', (new Lead(['status' => 'converted']))->reportStatusLabel());
     }
 
     public function test_opportunity_kanban_and_detail_views_render_without_blade_errors(): void
@@ -202,7 +284,7 @@ class CrmTest extends TestCase
     {
         $admin = User::factory()->create(['email' => 'admin@test.local', 'password' => 'password', 'authority_level' => 'master_admin', 'is_active' => true]);
 
-        $this->post('/login', ['email' => $admin->email, 'password' => 'password'])->assertRedirect('/');
+        $this->post('/login', ['tenant_id' => Tenant::firstOrFail()->id, 'email' => $admin->email, 'password' => 'password'])->assertRedirect('/');
         foreach (['/', '/leads', '/customers', '/opportunities', '/tasks', '/approvals', '/users', '/areas', '/roles', '/pipelines', '/settings/activity-evidence', '/audit-log'] as $url) {
             $this->actingAs($admin)->get($url)->assertOk();
         }
@@ -217,6 +299,7 @@ class CrmTest extends TestCase
         ]);
 
         $this->post('/login', [
+            'tenant_id' => Tenant::firstOrFail()->id,
             'email' => $user->email,
             'password' => 'password',
         ])->assertSessionHasErrors([
@@ -686,7 +769,6 @@ class CrmTest extends TestCase
 
         foreach ([
             route('customers.index'),
-            route('customers.create'),
             route('opportunities.index'),
             route('opportunities.create'),
             route('opportunities.kanban'),
@@ -774,7 +856,7 @@ class CrmTest extends TestCase
             ]);
     }
 
-    public function test_department_policy_requires_activity_image_and_stores_valid_preview_file(): void
+    public function test_role_policy_requires_activity_image_and_stores_valid_preview_file(): void
     {
         Storage::fake('public');
         $permission = Permission::create(['module' => 'activities', 'action' => 'view', 'key' => 'activities.view', 'label' => 'View activities']);
@@ -782,8 +864,7 @@ class CrmTest extends TestCase
         $role->permissions()->attach($permission);
         $sales = User::factory()->create(['authority_level' => 'staff']);
         $sales->roles()->attach($role);
-        $salesDepartment = Department::create(['code' => 'SLS-TEST', 'name' => 'Sales Test', 'activity_evidence_required' => true]);
-        $sales->departments()->attach($salesDepartment);
+        \App\Models\SystemSetting::setBool('activity_evidence_required', true, $role->id);
         $customer = $this->customer(['sales_owner_id' => $sales->id, 'created_by' => $sales->id]);
         $payload = [
             'customer_id' => $customer->id,
@@ -831,7 +912,6 @@ class CrmTest extends TestCase
         $managerRole->permissions()->attach($permission);
         $manager = User::factory()->create(['authority_level' => 'manager']);
         $manager->roles()->attach($managerRole);
-        $manager->departments()->attach($salesDepartment);
         $businessUnit = \App\Models\BusinessUnit::create(['code' => 'BU-MGR-EVIDENCE', 'name' => 'Manager Evidence']);
         $managerCustomer = $this->customer(['sales_owner_id' => $manager->id, 'created_by' => $manager->id, 'business_unit_id' => $businessUnit->id]);
         $manager->businessUnits()->attach($businessUnit);
@@ -984,18 +1064,20 @@ class CrmTest extends TestCase
         $this->assertNotNull($manual->fresh()->follow_up_completed_at);
     }
 
-    public function test_admin_can_change_activity_evidence_policy_per_department(): void
+    public function test_admin_can_change_activity_evidence_policy_per_role(): void
     {
         $admin = User::factory()->create(['authority_level' => 'master_admin']);
-        $sales = Department::create(['code' => 'SLS-POLICY', 'name' => 'Sales', 'activity_evidence_required' => true]);
-        $warehouse = Department::create(['code' => 'WHS-POLICY', 'name' => 'Warehouse', 'activity_evidence_required' => false]);
+        $sales = Role::create(['name' => 'Sales Policy', 'slug' => 'sales-policy']);
+        $telesales = Role::create(['name' => 'Telesales Policy', 'slug' => 'telesales-policy']);
+        \App\Models\SystemSetting::setBool('activity_evidence_required', true, $sales->id);
 
         $this->actingAs($admin)->put(route('settings.activity-evidence.update'), [
-            'required_department_ids' => [$warehouse->id],
+            'required_role_ids' => [$telesales->id],
         ])->assertRedirect();
 
-        $this->assertFalse($sales->fresh()->activity_evidence_required);
-        $this->assertTrue($warehouse->fresh()->activity_evidence_required);
+        $this->assertFalse(\App\Models\SystemSetting::bool('activity_evidence_required', false, User::factory()->make()));
+        $this->assertSame('0', \App\Models\SystemSetting::query()->where('key', 'activity_evidence_required')->where('role_id', $sales->id)->value('value'));
+        $this->assertSame('1', \App\Models\SystemSetting::query()->where('key', 'activity_evidence_required')->where('role_id', $telesales->id)->value('value'));
     }
 
     public function test_admin_can_create_and_update_area(): void
@@ -1023,16 +1105,17 @@ class CrmTest extends TestCase
     public function test_formatted_money_input_is_normalized_before_validation(): void
     {
         $admin = User::factory()->create(['authority_level' => 'master_admin']);
+        $customer = $this->customer(['sales_owner_id' => $admin->id, 'created_by' => $admin->id]);
 
-        $this->actingAs($admin)->post(route('customers.store'), [
-            'company_name' => 'Customer Format Rupiah',
+        $this->actingAs($admin)->put(route('customers.update', $customer), [
+            'company_name' => $customer->company_name,
             'phone' => '081234567890',
             'status' => 'active',
             'credit_limit' => '1.250.000',
             'estimated_monthly_purchase' => '2.750.000',
         ])->assertRedirect();
 
-        $customer = Customer::where('company_name', 'Customer Format Rupiah')->firstOrFail();
+        $customer->refresh();
         $this->assertSame('1250000.00', $customer->credit_limit);
         $this->assertSame('2750000.00', $customer->estimated_monthly_purchase);
     }
@@ -1054,7 +1137,7 @@ class CrmTest extends TestCase
             ->assertSee('Nilai target opportunity')
             ->assertSee('Target Harga')
             ->assertDontSee('Harga penawaran *')
-            ->assertSee('Target Harga per UOM')
+            ->assertSee('Target Harga (UOM)')
             ->assertSee('Nilai target opportunity')
             ->assertDontSee('>Subtotal</label>', false)
             ->assertSee('Supplier yang digunakan saat ini')
@@ -1130,6 +1213,34 @@ class CrmTest extends TestCase
             ->assertSeeText('Cust Aktif');
     }
 
+    public function test_an_opportunity_can_mix_regular_and_custom_items(): void
+    {
+        $admin = User::factory()->create(['authority_level' => 'master_admin']);
+        $customer = $this->customer(['sales_owner_id' => $admin->id, 'created_by' => $admin->id]);
+        $pipeline = Pipeline::create(['name' => 'Mixed Order Pipeline', 'slug' => 'mixed-order-pipeline', 'created_by' => $admin->id]);
+        PipelineStage::create(['pipeline_id' => $pipeline->id, 'name' => 'New', 'slug' => 'new', 'position' => 1, 'probability' => 10]);
+
+        $this->actingAs($admin)->post(route('opportunities.store'), [
+            'customer_id' => $customer->id,
+            'pipeline_id' => $pipeline->id,
+            'title' => 'Pesanan campuran regular dan custom',
+            'items' => [
+                ['product_name' => 'Paper cup regular', 'market_segment' => 'drink', 'product_type' => 'regular', 'quantity' => 1000, 'quantity_unit' => 'pcs', 'target_price' => 1000, 'photo' => UploadedFile::fake()->image('regular.png')],
+                ['product_name' => 'Butter cake custom', 'market_segment' => 'food', 'product_type' => 'custom', 'custom_specification' => 'Logo pelanggan, kemasan emas, ukuran 20 cm.', 'quantity' => 1, 'quantity_unit' => 'pcs', 'target_price' => 250000, 'photo' => UploadedFile::fake()->image('custom.png')],
+            ],
+            'priority' => 'medium',
+        ])->assertRedirect();
+
+        $opportunity = Opportunity::where('title', 'Pesanan campuran regular dan custom')->firstOrFail();
+        $this->assertCount(2, $opportunity->items);
+        $this->assertDatabaseHas('opportunity_items', ['opportunity_id' => $opportunity->id, 'product_name' => 'Paper cup regular', 'product_type' => 'regular']);
+        $this->assertDatabaseHas('opportunity_items', ['opportunity_id' => $opportunity->id, 'product_name' => 'Butter cake custom', 'product_type' => 'custom']);
+        $this->actingAs($admin)->get(route('opportunities.show', $opportunity))
+            ->assertOk()
+            ->assertSeeText('Reguler')
+            ->assertSeeText('Custom');
+    }
+
     public function test_sales_created_opportunity_is_forced_to_their_ownership_and_remains_accessible(): void
     {
         $permission = Permission::create(['module' => 'opportunities', 'action' => 'view', 'key' => 'opportunities.view', 'label' => 'View opportunities']);
@@ -1178,7 +1289,6 @@ class CrmTest extends TestCase
         foreach ([
             route('leads.create'),
             route('leads.edit', $lead),
-            route('customers.create'),
             route('customers.show', $customer),
             route('customers.edit', $customer),
             route('opportunities.create'),
@@ -1372,7 +1482,7 @@ class CrmTest extends TestCase
             ->assertSee('Food Industry')
             ->assertSee('Modern Trade Nasional')
             ->assertDontSee('+ Tambah lainnya')
-            ->assertSee('Sales penanggung jawab')
+            ->assertSee('Sales/Telesales penanggung jawab')
             ->assertDontSee('>Team</label>', false)
             ->assertSee('Kota/Kabupaten')
             ->assertSee('Pilih area')
@@ -1398,7 +1508,7 @@ class CrmTest extends TestCase
         \App\Models\BusinessUnit::create(['code' => 'FORM-CUST-2', 'name' => 'Resto / Rumah Makan']);
 
         $this->actingAs($admin)
-            ->get(route('customers.create'))
+            ->get(route('customers.edit', $this->customer(['sales_owner_id' => $admin->id, 'created_by' => $admin->id])))
             ->assertOk()
             ->assertSee('Informasi customer')
             ->assertSee('Nomor WhatsApp')
@@ -1533,6 +1643,7 @@ class CrmTest extends TestCase
         $this->actingAs($csa)
             ->put(route('leads.update', $lead), [
                 'company_name' => $lead->company_name,
+                'brand_name' => $lead->brand_name ?: $lead->company_name,
                 'contact_name' => $lead->contact_name,
                 'phone' => $lead->phone,
                 'source' => $lead->source,
@@ -1587,7 +1698,7 @@ class CrmTest extends TestCase
         $this->assertSame(0, Opportunity::count());
     }
 
-    public function test_sales_can_create_own_lead_and_customer_while_submitted_owner_is_ignored(): void
+    public function test_sales_can_create_own_lead_while_submitted_owner_is_ignored(): void
     {
         $leadView = Permission::create(['module' => 'leads', 'action' => 'view', 'key' => 'leads.view', 'label' => 'View leads']);
         $customerView = Permission::create(['module' => 'customers', 'action' => 'view', 'key' => 'customers.view', 'label' => 'View customers']);
@@ -1601,7 +1712,7 @@ class CrmTest extends TestCase
 
         $this->actingAs($sales)
             ->post(route('leads.store'), [
-                'company_name' => 'Lead Buatan Sales',
+                'brand_name' => 'Lead Buatan Sales',
                 'contact_name' => 'Pemilik Lead',
                 'phone' => '081234567890',
                 'source' => 'sales_visit',
@@ -1610,23 +1721,74 @@ class CrmTest extends TestCase
             ])
             ->assertRedirect(route('customers.index', ['view' => 'prospects']));
 
-        $lead = \App\Models\Lead::where('company_name', 'Lead Buatan Sales')->firstOrFail();
+        $lead = \App\Models\Lead::where('brand_name', 'Lead Buatan Sales')->firstOrFail();
+        $this->assertNull($lead->company_name);
         $this->assertSame($sales->id, $lead->owner_id);
         $this->assertSame($businessUnit->id, $lead->business_unit_id);
+    }
 
-        $this->actingAs($sales)
-            ->post(route('customers.store'), [
-                'company_name' => 'Customer Buatan Sales',
-                'phone' => '081298765432',
-                'status' => 'active',
-                'sales_owner_id' => $otherSales->id,
-                'assigned_user_ids' => [$otherSales->id],
-            ])
-            ->assertRedirect();
+    public function test_customer_can_only_be_created_from_lead_and_edit_requires_permission(): void
+    {
+        $view = Permission::create(['module' => 'customers', 'action' => 'view', 'key' => 'customers.view', 'label' => 'View Customers']);
+        $role = Role::create(['name' => 'Customer Viewer', 'slug' => 'customer-viewer']);
+        $role->permissions()->attach($view);
+        $viewer = User::factory()->create(['is_active' => true]);
+        $viewer->roles()->attach($role);
+        $customer = $this->customer(['sales_owner_id' => $viewer->id, 'created_by' => $viewer->id]);
 
-        $customer = Customer::where('company_name', 'Customer Buatan Sales')->firstOrFail();
-        $this->assertSame($sales->id, $customer->sales_owner_id);
-        $this->assertEquals([$sales->id], $customer->assignedUsers()->pluck('users.id')->all());
+        $this->assertFalse(app('router')->getRoutes()->hasNamedRoute('customers.create'));
+        $this->assertFalse(app('router')->getRoutes()->hasNamedRoute('customers.store'));
+        $this->actingAs($viewer)->get(route('customers.show', $customer))->assertOk()->assertDontSee('Edit data customer');
+        $this->actingAs($viewer)->get(route('customers.edit', $customer))->assertForbidden();
+        $this->actingAs($viewer)->put(route('customers.update', $customer), [
+            'company_name' => 'Tidak boleh diubah', 'phone' => $customer->phone, 'status' => 'active',
+        ])->assertForbidden();
+    }
+
+    public function test_lead_can_have_multiple_sales_collaborators_and_transfers_them_to_customer(): void
+    {
+        $this->seed();
+        $csa = User::where('email', 'csa@unified.test')->firstOrFail();
+        $owner = User::where('email', 'sales@unified.test')->firstOrFail();
+        $collaborator = User::where('email', 'telesales@unified.test')->firstOrFail();
+
+        $this->actingAs($csa)->post(route('leads.store'), [
+            'company_name' => 'Lead Kolaborasi', 'brand_name' => 'Lead Kolaborasi', 'contact_name' => 'PIC Kolaborasi',
+            'phone' => '081234567801', 'source' => 'telemarketing', 'status' => 'warm_lead',
+            'owner_id' => $owner->id, 'collaborator_ids' => [$collaborator->id],
+        ])->assertRedirect();
+
+        $lead = Lead::where('company_name', 'Lead Kolaborasi')->firstOrFail();
+        $this->assertSame([$collaborator->id], $lead->collaborators()->pluck('users.id')->all());
+        $this->actingAs($collaborator)->get(route('leads.edit', $lead))->assertOk()->assertSee('Kolaborasi');
+
+        $this->actingAs($csa)->post(route('leads.convert', $lead), [
+            'legal_name' => 'PT Lead Kolaborasi', 'npwp' => '01.234.567.8-999.000',
+        ])->assertRedirect();
+
+        $customer = Customer::where('converted_from_lead_id', $lead->id)->firstOrFail();
+        $this->assertDatabaseHas('customer_user', ['customer_id' => $customer->id, 'user_id' => $owner->id, 'responsibility' => 'owner']);
+        $this->assertDatabaseHas('customer_user', ['customer_id' => $customer->id, 'user_id' => $collaborator->id, 'responsibility' => 'collaborator']);
+    }
+
+    public function test_invite_leads_permission_controls_collaborator_assignment(): void
+    {
+        $this->seed();
+        $csa = User::where('email', 'csa@unified.test')->firstOrFail();
+        $owner = User::where('email', 'sales@unified.test')->firstOrFail();
+        $collaborator = User::where('email', 'telesales@unified.test')->firstOrFail();
+        $permission = Permission::where('key', 'leads.invite')->firstOrFail();
+        Role::where('slug', 'csa')->firstOrFail()->deniedPermissions()->syncWithoutDetaching($permission->id);
+
+        $this->actingAs($csa)->get(route('leads.create'))->assertOk()->assertDontSee('Pilih rekan (opsional)');
+        $this->actingAs($csa)->post(route('leads.store'), [
+            'company_name' => 'Lead Tanpa Invite', 'brand_name' => 'Lead Tanpa Invite', 'contact_name' => 'PIC', 'phone' => '081234567802',
+            'source' => 'telemarketing', 'status' => 'warm_lead', 'owner_id' => $owner->id,
+            'collaborator_ids' => [$collaborator->id],
+        ])->assertRedirect();
+
+        $lead = Lead::where('company_name', 'Lead Tanpa Invite')->firstOrFail();
+        $this->assertCount(0, $lead->collaborators);
     }
 
     public function test_inactive_customer_cannot_receive_a_new_activity(): void
@@ -1739,6 +1901,54 @@ class CrmTest extends TestCase
         $csv = $response->streamedContent();
         $this->assertStringContainsString('Alpha Filter Export', $csv);
         $this->assertStringNotContainsString('Beta Tidak Diekspor', $csv);
+    }
+
+    public function test_report_excel_export_is_a_formatted_company_workbook_and_honors_filters(): void
+    {
+        $admin = User::factory()->create(['authority_level' => 'master_admin']);
+        Lead::create(['company_name' => 'Alpha Excel Export', 'brand_name' => 'Brand Alpha', 'contact_name' => 'Kontak Alpha', 'phone' => '081200000001', 'owner_id' => $admin->id, 'created_by' => $admin->id, 'status' => 'warm_lead']);
+        Lead::create(['company_name' => 'Beta Tidak Diekspor', 'contact_name' => 'Kontak Beta', 'phone' => '081200000002', 'owner_id' => $admin->id, 'created_by' => $admin->id, 'status' => 'cold_lead']);
+
+        $response = $this->actingAs($admin)->get(route('reports.export.excel', ['search' => 'Alpha Excel']));
+        $response->assertOk();
+        $this->assertStringContainsString('.xlsx', (string) $response->headers->get('content-disposition'));
+
+        $temporaryExcel = tempnam(sys_get_temp_dir(), 'lead-report-').'.xlsx';
+        file_put_contents($temporaryExcel, $response->streamedContent());
+        try {
+            $workbook = IOFactory::load($temporaryExcel);
+            $sheet = $workbook->getActiveSheet();
+            $values = collect($sheet->rangeToArray('A1:I'.$sheet->getHighestDataRow()))->flatten();
+
+            $this->assertSame('Laporan Leads', $sheet->getCell('C2')->getValue());
+            $this->assertStringContainsString('Diterbitkan', (string) $sheet->getCell('C3')->getValue());
+            $this->assertNotEmpty($sheet->getCell('C1')->getValue());
+            $this->assertTrue($values->contains('Alpha Excel Export'));
+            $this->assertTrue($values->contains('Brand'));
+            $this->assertTrue($values->contains('Brand Alpha'));
+            $this->assertFalse($values->contains('Beta Tidak Diekspor'));
+            $this->assertSame(PageSetup::PAPERSIZE_A4, $sheet->getPageSetup()->getPaperSize());
+            $dateColumn = collect($sheet->rangeToArray('A10:J10')[0])->search('Tanggal Masuk');
+            $this->assertNotFalse($dateColumn);
+            $dateCell = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::stringFromColumnIndex($dateColumn + 1).'11';
+            $this->assertSame('dd mmm yyyy, hh:mm', $sheet->getStyle($dateCell)->getNumberFormat()->getFormatCode());
+            $this->assertStringNotContainsString('LEADS/', (string) $sheet->getCell('C3')->getValue());
+            $this->assertStringNotContainsString('LEADS/', $sheet->getHeaderFooter()->getOddFooter());
+        } finally {
+            @unlink($temporaryExcel);
+        }
+    }
+
+    public function test_report_export_modal_uses_the_complete_fixed_column_set(): void
+    {
+        $admin = User::factory()->create(['authority_level' => 'master_admin']);
+
+        $this->actingAs($admin)->get(route('reports.index'))
+            ->assertOk()
+            ->assertDontSeeText('Kolom laporan')
+            ->assertDontSee('name="columns[]"', false)
+            ->assertSeeText('Excel')
+            ->assertSeeText('PDF');
     }
 
     public function test_settings_submenu_has_responsive_navigation_hooks(): void

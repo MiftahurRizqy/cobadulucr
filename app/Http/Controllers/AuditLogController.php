@@ -15,6 +15,8 @@ class AuditLogController extends Controller
                 $search = trim((string) $request->search);
                 $query->where(function ($nested) use ($search) {
                     $nested->where('module', 'like', "%{$search}%")
+                        ->orWhere('action', 'like', "%{$search}%")
+                        ->orWhere('reason', 'like', "%{$search}%")
                         ->orWhere('auditable_id', $search)
                         ->orWhereHas('user', fn ($user) => $user->where('name', 'like', "%{$search}%"));
                 });

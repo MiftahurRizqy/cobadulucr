@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Area;
 use App\Models\Activity;
+use App\Models\AuditLog;
 use App\Models\Attachment;
 use App\Models\BusinessUnit;
 use App\Models\Customer;
@@ -12,7 +13,6 @@ use App\Models\User;
 use App\Support\CustomerDuplicateDetector;
 use App\Support\BusinessUnitResolver;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 class CustomerController extends Controller
 {
@@ -33,13 +33,15 @@ class CustomerController extends Controller
 
         if ($view === 'prospects' && $request->user()->canAccess('leads.view')) {
             $filterOwners = User::query()
-                ->whereIn('id', Lead::query()->visibleTo($request->user())->select('owner_id'))
+                ->where(fn ($query) => $query
+                    ->whereIn('id', Lead::query()->visibleTo($request->user())->select('owner_id'))
+                    ->orWhereHas('collaborativeLeads', fn ($leads) => $leads->visibleTo($request->user())))
                 ->orderBy('name')
                 ->get(['id', 'name']);
             $records = Lead::query()->visibleTo($request->user())
                 ->whereNotIn('status', ['converted', 'leads_hold'])
                 ->whereDoesntHave('convertedCustomer')
-                ->with(['owner', 'area'])
+                ->with(['owner', 'collaborators', 'area'])
                 ->when($search, fn ($q, $s) => $q->where(fn ($q) => $q
                     ->where('company_name', 'like', "%$s%")
                     ->orWhere('contact_name', 'like', "%$s%")
@@ -48,7 +50,9 @@ class CustomerController extends Controller
                 ->when($request->status, fn ($q, $s) => $q->where('status', $s))
                 ->when($request->area_id, fn ($q, $id) => $q->where('area_id', $id))
                 ->when($request->business_type, fn ($q, $type) => $q->where('business_type', $type))
-                ->when($request->owner_id, fn ($q, $id) => $q->where('owner_id', $id))
+                ->when($request->owner_id, fn ($q, $id) => $q->where(fn ($query) => $query
+                    ->where('owner_id', $id)
+                    ->orWhereHas('collaborators', fn ($collaborators) => $collaborators->whereKey($id))))
                 ->when($request->follow_up === 'overdue', fn ($q) => $q->whereNotNull('next_follow_up_at')->where('next_follow_up_at', '<', now()))
                 ->when($request->follow_up === 'scheduled', fn ($q) => $q->whereNotNull('next_follow_up_at')->where('next_follow_up_at', '>=', now()))
                 ->when($request->follow_up === 'none', fn ($q) => $q->whereNull('next_follow_up_at'))
@@ -79,35 +83,6 @@ class CustomerController extends Controller
         $records = $customers;
 
         return view('customers.index', compact('records', 'view', 'prospectCount', 'customerCount', 'areas', 'filterOwners', 'customerTypes'));
-    }
-
-    public function create() { return view('customers.form', $this->formData(new Customer)); }
-
-    public function store(Request $request, CustomerDuplicateDetector $duplicateDetector, BusinessUnitResolver $businessUnits)
-    {
-        $request->validate(['business_type_custom' => ['nullable', 'string', 'max:255']]);
-        if ($request->user()->isSales()) {
-            $request->merge([
-                'sales_owner_id' => $request->user()->id,
-                'assigned_user_ids' => [$request->user()->id],
-            ]);
-        }
-        $data = $this->validated($request);
-        $businessUnit = $this->resolveBusinessUnit($request, $data, $businessUnits);
-        $data['business_type'] = $businessUnit?->name;
-        $data['business_unit_id'] = $businessUnit?->id;
-        $this->guardDuplicates($request, $duplicateDetector, $data);
-        $data['sales_owner_id'] ??= $request->user()->id;
-        $owner = User::with('manager.manager')->find($data['sales_owner_id']);
-        $data['supervisor_id'] ??= $owner?->manager_id;
-        $data['manager_id'] ??= $owner?->manager?->manager_id;
-        $data['created_by'] = $request->user()->id;
-        $customer = DB::transaction(function () use ($data, $request) {
-            $customer = Customer::create($data);
-            $customer->assignedUsers()->sync(collect($request->input('assigned_user_ids', []))->push($data['sales_owner_id'])->filter()->unique());
-            return $customer;
-        });
-        return redirect()->route('customers.show', $customer)->with('success', 'Customer berhasil dibuat.');
     }
 
     public function show(Request $request, Customer $customer)
@@ -204,7 +179,10 @@ class CustomerController extends Controller
         $this->guardDuplicates($request, $duplicateDetector, $data, $customer);
         $customer->update($data);
         if ($request->has('assigned_user_ids')) {
-            $customer->assignedUsers()->sync(collect($request->input('assigned_user_ids', []))->push($data['sales_owner_id'] ?? null)->filter()->unique());
+            $oldIds = $customer->assignedUsers()->pluck('users.id');
+            $newIds = collect($request->input('assigned_user_ids', []))->push($data['sales_owner_id'] ?? null)->filter()->unique();
+            $customer->assignedUsers()->sync($newIds);
+            AuditLog::recordRelation($customer, 'assigned_users', $oldIds, $newIds);
         }
         return redirect()->route('customers.show', $customer)->with('success', 'Customer diperbarui.');
     }

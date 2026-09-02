@@ -2,10 +2,12 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\Auditable;
 use Illuminate\Database\Eloquent\Model;
 
 class Team extends Model
 {
+    use Auditable;
     protected $fillable = ['department_id', 'leader_id', 'name', 'is_active'];
 
     public function department()

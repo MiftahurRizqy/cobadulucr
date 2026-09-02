@@ -11,11 +11,10 @@ class AreaController extends Controller
     public function index(Request $request)
     {
         $areas = Area::query()
-            ->withCount(['users', 'customers', 'leads'])
+            ->withCount(['customers', 'leads'])
             ->when($request->search, fn ($query, $search) => $query->where(fn ($query) => $query
                 ->where('name', 'like', "%{$search}%")
-                ->orWhere('code', 'like', "%{$search}%")
-                ->orWhere('branch', 'like', "%{$search}%")))
+                ->orWhere('code', 'like', "%{$search}%")))
             ->when($request->status !== null && $request->status !== '', fn ($query) => $query->where('is_active', $request->boolean('status')))
             ->orderBy('name')
             ->paginate(20)
@@ -53,7 +52,6 @@ class AreaController extends Controller
         return $request->validate([
             'code' => ['required', 'string', 'max:20', Rule::unique('areas', 'code')->ignore($area)],
             'name' => ['required', 'string', 'max:100'],
-            'branch' => ['nullable', 'string', 'max:100'],
             'is_active' => ['required', 'boolean'],
         ]);
     }
