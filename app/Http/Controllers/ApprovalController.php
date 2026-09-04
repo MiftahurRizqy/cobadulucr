@@ -52,7 +52,7 @@ class ApprovalController extends Controller
 
         $approvals = ActivityApprovalDetail::query()
             ->whereIn('activity_id', $visibleActivityIds)
-            ->with(['activity.customer', 'activity.opportunity', 'activity.user', 'activity.approvalDetail.decidedBy', 'activity.attachments'])
+            ->with(['activity.customer', 'activity.lead', 'activity.opportunity', 'activity.user', 'activity.approvalDetail.decidedBy', 'activity.attachments'])
             ->when($status !== 'all', fn ($query) => $query->where('approval_status', $status))
             ->when($request->filled('type'), fn ($query) => $query->whereHas(
                 'activity',
@@ -63,6 +63,7 @@ class ApprovalController extends Controller
                 $query->whereHas('activity', fn ($activity) => $activity
                     ->where('summary', 'like', "%$search%")
                     ->orWhereHas('customer', fn ($customer) => $customer->where('company_name', 'like', "%$search%"))
+                    ->orWhereHas('lead', fn ($lead) => $lead->where('company_name', 'like', "%$search%"))
                     ->orWhereHas('user', fn ($user) => $user->where('name', 'like', "%$search%")));
             })
             ->when($focusedApproval, fn ($query) => $query->orderByRaw('activity_id = ? desc', [$focusedApproval->activity_id]))
@@ -90,7 +91,7 @@ class ApprovalController extends Controller
                 ->with('success', 'Pengajuan ini sudah diajukan ulang atau telah diputuskan.');
         }
 
-        $activity->load(['customer', 'approvalDetail']);
+        $activity->load(['customer', 'lead', 'approvalDetail']);
 
         return view('approvals.revise', compact('activity'));
     }

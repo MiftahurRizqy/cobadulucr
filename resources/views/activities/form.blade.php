@@ -14,6 +14,12 @@
         approverIds: @js($collaborationUsers->where('is_active', true)->where('is_approver', true)->pluck('id')->map(fn($id)=>(string)$id)->values()),
         typePickerOpen: false,
         selectedCustomer: @js((string) old('customer_id', $activity->customer_id)),
+        selectedLead: @js((string) old('lead_id', $activity->lead_id)),
+        recordKey: @js(old('lead_id', $activity->lead_id) ? 'lead:'.$activity->lead_id : (old('customer_id', $activity->customer_id) ? 'customer:'.$activity->customer_id : '')),
+        recordPickerOpen: false,
+        recordSearch: '',
+        customerOptions: @js($customers->map(fn ($customer) => ['id' => (string) $customer->id, 'name' => $customer->company_name])->values()),
+        leadOptions: @js($leads->map(fn ($lead) => ['id' => (string) $lead->id, 'name' => $lead->company_name, 'detail' => $lead->brand_name])->values()),
         selectedOpportunity: @js((string) old('opportunity_id', $activity->opportunity_id)),
         opportunityOptions: @js($opportunities->map(fn($opportunity) => [
             'id' => (string) $opportunity->id,
@@ -73,7 +79,36 @@
         hasSelectedApprover() {
             return this.selectedCollaborators.some(id => this.approverIds.includes(String(id)));
         },
+        filteredCustomers() {
+            const query = this.recordSearch.trim().toLowerCase();
+            return this.customerOptions.filter(item => !query || item.name.toLowerCase().includes(query));
+        },
+        filteredLeads() {
+            const query = this.recordSearch.trim().toLowerCase();
+            return this.leadOptions.filter(item => !query || item.name.toLowerCase().includes(query) || (item.detail || '').toLowerCase().includes(query));
+        },
+        selectedRecordLabel() {
+            const [kind, id] = String(this.recordKey || '').split(':');
+            const item = (kind === 'lead' ? this.leadOptions : this.customerOptions).find(option => option.id === id);
+            return item ? (kind === 'lead' ? 'Lead · ' : 'Customer · ') + item.name : 'Pilih customer atau lead';
+        },
+        selectRecord(key) {
+            const [kind, id] = String(key || '').split(':');
+            this.recordKey = key;
+            this.selectedOpportunity = '';
+            if (kind === 'lead') {
+                this.selectedCustomer = '';
+                this.selectedLead = id || '';
+                if (this.decisionTypes.includes(this.type)) this.type = 'intro_contact';
+            } else {
+                this.selectedCustomer = id || '';
+                this.selectedLead = '';
+            }
+            this.recordPickerOpen = false;
+            this.recordSearch = '';
+        },
         init() {
+            if (this.selectedLead && this.decisionTypes.includes(this.type)) this.type = 'intro_contact';
             if (this.decisionTypes.includes(this.type)) {
                 this.selectedCollaborators = this.selectedCollaborators.filter(id => this.approverIds.includes(String(id)));
             }
@@ -83,12 +118,16 @@
                 }
             });
             this.$watch('selectedCustomer', () => {
+                if (!this.selectedCustomer) return;
                 if (this.selectedOpportunity && !this.filteredOpportunities().some(item => item.id === String(this.selectedOpportunity))) {
                     this.selectedOpportunity = '';
                 }
                 this.loadPendingFollowUps();
             });
-            if (this.selectedCustomer) this.loadPendingFollowUps();
+            this.$watch('selectedLead', () => {
+                if (this.selectedLead) this.loadPendingFollowUps();
+            });
+            if (this.selectedCustomer || this.selectedLead) this.loadPendingFollowUps();
         },
         filteredOpportunities() {
             return this.opportunityOptions.filter(item => item.customer_id === String(this.selectedCustomer));
@@ -100,13 +139,15 @@
             return this.opportunityOptions.find(item => item.id === String(this.selectedOpportunity))?.items || [];
         },
         async loadPendingFollowUps() {
-            if (!this.selectedCustomer) {
+            const targetKey = this.selectedLead ? 'lead_id' : 'customer_id';
+            const targetId = this.selectedLead || this.selectedCustomer;
+            if (!targetId) {
                 this.pendingFollowUps = [];
                 return;
             }
             this.followUpsLoading = true;
             try {
-                const response = await fetch(this.pendingFollowUpsUrl + '?customer_id=' + encodeURIComponent(this.selectedCustomer), { headers: { Accept: 'application/json' } });
+                const response = await fetch(this.pendingFollowUpsUrl + '?' + targetKey + '=' + encodeURIComponent(targetId), { headers: { Accept: 'application/json' } });
                 this.pendingFollowUps = response.ok ? await response.json() : [];
                 if (this.selectedFollowUp && !this.pendingFollowUps.some(item => String(item.id) === String(this.selectedFollowUp))) this.selectedFollowUp = '';
             } finally {
@@ -225,15 +266,15 @@
     @if($completesFollowUp)
         <div class="mb-5 flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 sm:flex-row sm:items-center sm:justify-between">
             <div><div class="text-[10px] font-black uppercase tracking-wider text-amber-700">Mengerjakan follow-up</div><div class="mt-1 text-xs font-semibold text-slate-700">{{ $completesFollowUp->summary }}</div><div class="mt-1 text-[10px] text-slate-500">Jadwal {{ $completesFollowUp->next_follow_up_at?->translatedFormat('d M Y, H:i') }}. Setelah aktivitas ini disimpan, follow-up lama otomatis ditandai selesai.</div></div>
-            <a href="{{ route('customers.show', $completesFollowUp->customer_id) }}" class="btn-secondary shrink-0">Batal</a>
+            <a href="{{ $completesFollowUp->customer_id ? route('customers.show', $completesFollowUp->customer_id) : route('leads.edit', $completesFollowUp->lead_id) }}" class="btn-secondary shrink-0">Batal</a>
         </div>
     @endif
     <div class="grid gap-5 xl:grid-cols-[1fr_340px]">
         <div class="space-y-5">
             <section class="card p-5 md:p-6">
-                <div><h3 class="section-title">Aktivitas & customer</h3><p class="mt-1 text-[11px] text-slate-400">Pilih proses CRM lalu lengkapi hasil aktivitasnya.</p></div>
+                <div><h3 class="section-title">Aktivitas</h3><p class="mt-1 text-[11px] text-slate-400">Catat aktivitas untuk Lead atau Customer, lalu lengkapi hasilnya.</p></div>
                 <div class="mt-5 grid gap-5 md:grid-cols-2">
-                    <div><label class="label">Customer *</label><select class="field disabled:bg-slate-100 disabled:text-slate-500" name="customer_id" x-model="selectedCustomer" required><option value="">Pilih customer</option>@foreach($customers as $c)<option value="{{ $c->id }}">{{ $c->company_name }}</option>@endforeach</select></div>
+                    <div class="relative" @keydown.escape.window="recordPickerOpen = false"><label class="label">Customer / Lead *</label><input type="hidden" name="customer_id" :value="selectedCustomer"><input type="hidden" name="lead_id" :value="selectedLead"><button type="button" class="field flex items-center justify-between gap-3 text-left" @click="recordPickerOpen = !recordPickerOpen"><span class="min-w-0 truncate" :class="recordKey ? 'font-semibold text-slate-700' : 'text-slate-400'" x-text="selectedRecordLabel()"></span><svg class="size-4 shrink-0 text-slate-400 transition" :class="recordPickerOpen && 'rotate-180'" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m5 7.5 5 5 5-5"/></svg></button><div x-show="recordPickerOpen" x-cloak x-transition.origin.top.left @click.outside="recordPickerOpen = false" class="absolute left-0 top-[66px] z-50 w-[min(680px,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"><div class="border-b border-slate-100 p-3"><input x-ref="recordSearch" type="search" class="field h-10 text-xs" x-model="recordSearch" placeholder="Cari customer atau lead..." @keydown.escape.stop="recordPickerOpen = false"></div><div class="grid divide-y divide-slate-100 sm:grid-cols-2 sm:divide-x sm:divide-y-0"><section class="p-3"><div class="mb-2 px-2 text-[10px] font-extrabold uppercase tracking-wider text-brand-600">Customer</div><div class="max-h-56 space-y-1 overflow-y-auto"><template x-for="item in filteredCustomers()" :key="'customer-' + item.id"><button type="button" class="flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-2.5 text-left hover:bg-brand-50" @click="selectRecord('customer:' + item.id)"><span class="min-w-0"><span class="block truncate text-xs font-semibold text-slate-700" x-text="item.name"></span><span class="mt-0.5 block text-[9px] text-slate-400">Customer</span></span><svg x-show="recordKey === 'customer:' + item.id" class="size-4 shrink-0 text-brand-600" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="m4 10 4 4 8-8"/></svg></button></template><p x-show="!filteredCustomers().length" class="px-2 py-5 text-center text-[10px] text-slate-400">Customer tidak ditemukan.</p></div></section><section class="p-3"><div class="mb-2 px-2 text-[10px] font-extrabold uppercase tracking-wider text-amber-600">Lead</div><div class="max-h-56 space-y-1 overflow-y-auto"><template x-for="item in filteredLeads()" :key="'lead-' + item.id"><button type="button" class="flex w-full items-center justify-between gap-3 rounded-lg px-2.5 py-2.5 text-left hover:bg-amber-50" @click="selectRecord('lead:' + item.id)"><span class="min-w-0"><span class="block truncate text-xs font-semibold text-slate-700" x-text="item.name"></span><span class="mt-0.5 block truncate text-[9px] text-slate-400" x-text="item.detail || 'Lead' "></span></span><svg x-show="recordKey === 'lead:' + item.id" class="size-4 shrink-0 text-amber-600" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="m4 10 4 4 8-8"/></svg></button></template><p x-show="!filteredLeads().length" class="px-2 py-5 text-center text-[10px] text-slate-400">Lead tidak ditemukan.</p></div></section></div></div>@error('customer_id')<p class="mt-2 text-[10px] font-semibold text-rose-600">{{ $message }}</p>@enderror @error('lead_id')<p class="mt-2 text-[10px] font-semibold text-rose-600">{{ $message }}</p>@enderror</div>
                     <div>
                         <label class="label">Opportunity</label>
                         <select x-ref="opportunitySelect" class="field disabled:bg-slate-100 disabled:text-slate-500" name="opportunity_id" x-model="selectedOpportunity" :disabled="!selectedCustomer">
@@ -242,7 +283,7 @@
                                 <option :value="item.id" :selected="String(selectedOpportunity) === String(item.id)" x-text="opportunityLabel(item)"></option>
                             </template>
                         </select>
-                        <p x-show="selectedCustomer && !filteredOpportunities().length" x-cloak class="mt-2 text-[10px] text-slate-400">Customer ini belum memiliki opportunity. Aktivitas tetap dapat disimpan tanpa opportunity.</p>
+                        <p x-show="selectedLead" x-cloak class="mt-2 text-[10px] text-slate-400">Opportunity tersedia setelah Lead menjadi Customer.</p><p x-show="selectedCustomer && !filteredOpportunities().length" x-cloak class="mt-2 text-[10px] text-slate-400">Customer ini belum memiliki opportunity. Aktivitas tetap dapat disimpan tanpa opportunity.</p>
                         @error('opportunity_id')<p class="mt-2 text-[10px] font-semibold text-rose-600">{{ $message }}</p>@enderror
                     </div>
                     <div class="relative" @keydown.escape.window="typePickerOpen=false">
@@ -269,14 +310,14 @@
                                         <button type="button" @click="type=@js($key);typePickerOpen=false" class="group flex min-h-20 flex-col items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white p-2 text-center transition hover:-translate-y-0.5 hover:border-sky-300 hover:shadow-md" :class="type===@js($key)&&'ring-2 ring-sky-500 border-sky-400'"><span class="grid size-9 place-items-center rounded-xl bg-sky-50 text-sky-600">@include('activities._type_icon',['type'=>$key])</span><span class="text-[10px] font-bold leading-tight text-slate-700">{{ $label }}</span></button>
                                     @endforeach
                                 </div>
-                                <div class="my-4 border-t border-slate-100"></div>
+                                <div x-show="selectedCustomer" x-cloak><div class="my-4 border-t border-slate-100"></div>
                                 <div class="mb-3 flex items-center justify-between gap-2"><span class="text-[9px] font-black uppercase tracking-[.12em] text-slate-400">Perlu Approval</span><span class="text-[9px] text-slate-400">Pilih akun approver aktif setelah memilih jenis aktivitas</span></div>
                                 <div class="grid grid-cols-3 gap-2 sm:grid-cols-5">
                                     @foreach(\App\Models\Activity::DECISION_TYPES as $key)
                                         @php($label = \App\Models\Activity::TYPES[$key])
                                         <button type="button" @click="type=@js($key);typePickerOpen=false" class="group flex min-h-20 flex-col items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white p-2 text-center transition hover:-translate-y-0.5 hover:border-violet-300 hover:shadow-md" :class="type===@js($key)&&'ring-2 ring-violet-500 border-violet-400'"><span class="grid size-9 place-items-center rounded-xl bg-violet-50 text-violet-600">@include('activities._type_icon',['type'=>$key])</span><span class="text-[10px] font-bold leading-tight text-slate-700">{{ $label }}</span></button>
                                     @endforeach
-                                </div>
+                                </div></div>
                             </div>
                         </div>
                         <p x-show="decisionTypes.includes(type)" x-cloak class="mt-2 text-[10px] font-semibold text-violet-600">Pilih approver aktif untuk memberikan keputusan.</p>
@@ -353,12 +394,12 @@
                             <input type="hidden" name="completes_follow_up_id" value="{{ $completesFollowUp->id }}">
                         @else
                         <label class="label">Jadwal follow-up yang diselesaikan</label>
-                        <select class="field" name="completes_follow_up_id" x-model="selectedFollowUp" :disabled="!selectedCustomer">
-                            <option value="" x-text="!selectedCustomer ? 'Pilih customer terlebih dahulu' : (followUpsLoading ? 'Memuat jadwal follow-up...' : 'Tidak menyelesaikan jadwal follow-up tertentu')"></option>
+                        <select class="field" name="completes_follow_up_id" x-model="selectedFollowUp" :disabled="!selectedCustomer && !selectedLead">
+                            <option value="" x-text="(!selectedCustomer && !selectedLead) ? 'Pilih customer atau lead terlebih dahulu' : (followUpsLoading ? 'Memuat jadwal follow-up...' : 'Tidak menyelesaikan jadwal follow-up tertentu')"></option>
                             <template x-for="item in pendingFollowUps" :key="item.id"><option :value="String(item.id)" x-text="(item.overdue ? 'TERLAMBAT · ' : '') + item.due_at + ' · ' + item.summary"></option></template>
                         </select>
                         <div class="mt-2 rounded-lg bg-sky-50 px-3 py-2 text-[10px] leading-relaxed text-sky-700" x-show="pendingFollowUps.length">Pilih jadwal jika aktivitas ini merupakan pengerjaannya. Setelah tersimpan, pengingat tersebut otomatis selesai.</div>
-                        <div class="mt-2 text-[10px] text-slate-400" x-show="!followUpsLoading && selectedCustomer && !pendingFollowUps.length">Customer ini tidak memiliki jadwal follow-up yang masih terbuka.</div>
+                        <div class="mt-2 text-[10px] text-slate-400" x-show="!followUpsLoading && (selectedCustomer || selectedLead) && !pendingFollowUps.length" x-text="selectedLead ? 'Lead ini tidak memiliki jadwal follow-up yang masih terbuka.' : 'Customer ini tidak memiliki jadwal follow-up yang masih terbuka.'"></div>
                         @endif
                     </div>
                     <div class="md:col-span-2">

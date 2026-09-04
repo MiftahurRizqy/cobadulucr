@@ -35,6 +35,7 @@ class LeadController extends Controller
             $request->merge(['owner_id' => $request->user()->id]);
         }
         $data = $this->validated($request);
+        $data = $this->resolveCustomSource($data);
         $businessUnit = $this->resolveBusinessUnit($request, $data, $businessUnits);
         $data['business_type'] = $businessUnit?->name;
         $data['business_unit_id'] = $businessUnit?->id;
@@ -62,6 +63,7 @@ class LeadController extends Controller
             $request->merge(['owner_id' => $lead->owner_id]);
         }
         $data = $this->validated($request);
+        $data = $this->resolveCustomSource($data);
         $businessUnit = $this->resolveBusinessUnit($request, $data, $businessUnits);
         $data['business_type'] = $businessUnit?->name;
         $data['business_unit_id'] = $businessUnit?->id;
@@ -153,7 +155,9 @@ class LeadController extends Controller
             'address' => ['nullable', 'string', 'max:2000'],
             'province' => ['nullable'], 'area_id' => ['nullable', 'exists:areas,id'],
             'business_unit_id' => ['nullable', 'exists:business_units,id'], 'owner_id' => ['required', 'exists:users,id'],
-            'source' => ['required'], 'business_type' => ['nullable'],
+            'source' => ['required', 'string', 'max:120'],
+            'source_custom' => ['nullable', 'string', 'max:120'],
+            'business_type' => ['nullable'],
             'product_interests' => ['nullable', 'array'],
             'product_interests.*.product_name' => ['nullable', 'string', 'max:255'],
             'product_interests.*.estimated_need' => ['nullable', 'numeric', 'min:0'],
@@ -214,6 +218,18 @@ class LeadController extends Controller
 
     private function formData(Lead $lead): array
     {
+        $sourceOptions = [
+            'website' => 'Website',
+            'whatsapp_ads' => 'WhatsApp / Ads',
+            'sales_visit' => 'Sales Visit',
+            'social_media' => 'Social Media',
+        ];
+        foreach (SystemSetting::json('lead_source_options') as $source) {
+            $source = trim((string) $source);
+            if ($source !== '') $sourceOptions[$source] = $source;
+        }
+        $sourceOptions['other'] = 'Lainnya';
+
         return [
             'lead' => $lead,
             'isSales' => auth()->user()->isSales(),
@@ -223,7 +239,31 @@ class LeadController extends Controller
                 ->orderBy('name')->get(),
             'areas' => Area::orderBy('name')->get(),
             'businessUnits' => app(BusinessUnitResolver::class)->options(),
+            'sourceOptions' => $sourceOptions,
         ];
+    }
+
+    private function resolveCustomSource(array $data): array
+    {
+        if (($data['source'] ?? null) === 'other') {
+            $custom = trim((string) ($data['source_custom'] ?? ''));
+            if ($custom === '') {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'source_custom' => 'Isi nama source saat memilih Lainnya.',
+                ]);
+            }
+            $customSources = collect(SystemSetting::json('lead_source_options'))
+                ->map(fn ($source) => trim((string) $source))
+                ->filter()
+                ->values();
+            if (! $customSources->contains(fn ($source) => mb_strtolower($source) === mb_strtolower($custom))) {
+                SystemSetting::setJson('lead_source_options', $customSources->push($custom)->all());
+            }
+            $data['source'] = $custom;
+        }
+
+        unset($data['source_custom']);
+        return $data;
     }
 
     private function syncCollaborators(Lead $lead, Request $request): void

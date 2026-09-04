@@ -17,15 +17,20 @@
             'product_type' => 'regular',
         ]];
     }
+    $selectedCustomerId = (string) old('customer_id', $opportunity->customer_id);
+    $initialCollaborators = collect(old('participant_ids', $customerCollaborators[$selectedCustomerId] ?? []))
+        ->map(fn ($id) => (string) $id)
+        ->values()
+        ->all();
 @endphp
-<form method="POST" action="{{ route('opportunities.store') }}" enctype="multipart/form-data" x-data="{ selectedCollaborators: @js(array_map('strval', old('participant_ids', []))) }">
+<form method="POST" action="{{ route('opportunities.store') }}" enctype="multipart/form-data" x-data="{ selectedCollaborators: @js($initialCollaborators), customerCollaborators: @js($customerCollaborators), selectedOwner: @js((string) old('owner_id', '')), selectCustomer(id) { this.selectedCollaborators = [...(this.customerCollaborators[id] || [])].filter(userId => userId !== this.selectedOwner); }, selectOwner(id) { this.selectedOwner = id; this.selectedCollaborators = this.selectedCollaborators.filter(userId => userId !== id); } }">
     @csrf
     <div class="grid gap-6 xl:grid-cols-[1fr_340px]">
         <div class="space-y-6">
             <section class="card p-6">
                 <h3 class="section-title">Opportunity detail</h3>
                 <div class="mt-5 grid gap-5 md:grid-cols-2">
-                    <div><label class="label">Customer *</label><select class="field" name="customer_id" required><option value="">Pilih customer</option>@foreach($customers as $customer)<option value="{{ $customer->id }}" @selected(old('customer_id',$opportunity->customer_id)==$customer->id)>{{ $customer->company_name }}</option>@endforeach</select></div>
+                    <div><label class="label">Customer *</label><select class="field" name="customer_id" @change="selectCustomer($event.target.value)" required><option value="">Pilih customer</option>@foreach($customers as $customer)<option value="{{ $customer->id }}" @selected(old('customer_id',$opportunity->customer_id)==$customer->id)>{{ $customer->company_name }}</option>@endforeach</select></div>
                     <div><label class="label">Pipeline utama order *</label><select class="field" name="pipeline_id" required><option value="">Pilih pipeline</option>@foreach($pipelines as $pipeline)<option value="{{ $pipeline->id }}" @selected(old('pipeline_id')==$pipeline->id)>{{ $pipeline->name }}</option>@endforeach</select><p class="mt-1.5 text-[10px] leading-relaxed text-slate-400">Pilih alur yang mengendalikan order ini. Produk reguler dan Custom tetap dapat digabung dalam satu opportunity.</p></div>
                     <div class="md:col-span-2"><label class="label">Judul opportunity *</label><input class="field" name="title" value="{{ old('title',$opportunity->title) }}" placeholder="Contoh: Supply produk Q4 untuk 12 outlet" required></div>
                     <div class="md:col-span-2"
@@ -83,12 +88,12 @@
                     <div>
                         <label class="label">Sales penanggung jawab</label>
                         @if($canAssignOwner)
-                            <select class="field" name="owner_id">
+                            <select class="field" name="owner_id" x-model="selectedOwner" @change="selectOwner($event.target.value)">
                                 <option value="">Ikuti sales pemegang customer</option>
                                 @foreach($users as $user)<option value="{{ $user->id }}" @selected(old('owner_id')==$user->id)>{{ $user->name }}</option>@endforeach
                             </select>
                         @else
-                            <input type="hidden" name="owner_id" value="{{ auth()->id() }}">
+                            <input type="hidden" name="owner_id" value="{{ auth()->id() }}" x-init="selectOwner('{{ auth()->id() }}')">
                             <div class="field bg-slate-50 text-slate-600">{{ auth()->user()->name }} <span class="text-slate-400">(otomatis)</span></div>
                         @endif
                     </div>
@@ -101,7 +106,7 @@
                             </button>
                             <div x-show="open" x-cloak class="absolute z-30 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
                                 @forelse($collaborationUsers as $collaborator)
-                                    <label class="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 hover:bg-slate-50">
+                                    <label class="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 hover:bg-slate-50" x-show="selectedOwner !== '{{ $collaborator->id }}'">
                                         <input type="checkbox" name="participant_ids[]" value="{{ $collaborator->id }}" x-model="selectedCollaborators" class="size-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500">
                                         <span class="grid size-7 shrink-0 place-items-center rounded-full bg-brand-50 text-[9px] font-black text-brand-700">{{ collect(explode(' ', $collaborator->name))->take(2)->map(fn($word) => mb_substr($word, 0, 1))->join('') }}</span>
                                         <span class="min-w-0 flex-1"><span class="block truncate text-[11px] font-bold text-slate-700">{{ $collaborator->name }}</span><span class="block truncate text-[9px] text-slate-400">{{ $collaborator->employee_id ?: ucfirst($collaborator->user_type) }}</span></span>
@@ -111,7 +116,7 @@
                                 @endforelse
                             </div>
                         </div>
-                        <p class="mt-2 text-[9px] leading-relaxed text-slate-400">Rekan yang diundang akan menerima notifikasi dan mendapat akses ke opportunity ini.</p>
+                        <p class="mt-2 text-[9px] leading-relaxed text-slate-400">Kolaborator dari lead akan tercentang otomatis. Anda tetap dapat menambah atau mengurangi rekan.</p>
                     </div>
                     <div><label class="label">Priority *</label><select class="field" name="priority">@foreach(['low','medium','high'] as $priority)<option value="{{ $priority }}" @selected(old('priority','medium')===$priority)>{{ ucfirst($priority) }}</option>@endforeach</select></div>
                 </div>

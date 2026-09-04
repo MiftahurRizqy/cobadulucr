@@ -19,28 +19,34 @@
 }
 
 @layer base {
-    body { @apply bg-[#f7f8fb] text-slate-700 antialiased; }
+    body { @apply bg-[#f7f8fb] text-[15px] text-slate-700 antialiased; }
     input, select, textarea, button { @apply outline-none; }
     ::selection { @apply bg-brand-100 text-brand-700; }
 }
 
 @layer components {
     .card { @apply rounded-xl border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,.025)]; }
-    .btn-primary { @apply inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-brand-600 px-3.5 text-xs font-bold text-white shadow-sm transition hover:bg-brand-700 focus:ring-4 focus:ring-brand-500/15; }
-    .btn-secondary { @apply inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-xs font-bold text-slate-600 shadow-sm transition hover:border-slate-300 hover:bg-slate-50; }
-    .btn-danger { @apply inline-flex h-10 items-center justify-center rounded-lg bg-rose-50 px-3.5 text-xs font-bold text-rose-700 hover:bg-rose-100; }
+    .btn-primary { @apply inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-brand-600 px-3.5 text-sm font-bold text-white shadow-sm transition hover:bg-brand-700 focus:ring-4 focus:ring-brand-500/15; }
+    .btn-secondary { @apply inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 text-sm font-bold text-slate-600 shadow-sm transition hover:border-slate-300 hover:bg-slate-50; }
+    .btn-danger { @apply inline-flex h-10 items-center justify-center rounded-lg bg-rose-50 px-3.5 text-sm font-bold text-rose-700 hover:bg-rose-100; }
     .icon-btn { @apply grid size-10 shrink-0 place-items-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-brand-600; }
     .field { @apply w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-800 transition placeholder:text-slate-400 focus:border-brand-400 focus:ring-4 focus:ring-brand-500/10; }
-    .label { @apply mb-1.5 block text-[10px] font-extrabold uppercase tracking-[.08em] text-slate-500; }
-    .badge { @apply inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold; }
-    .table-head { @apply border-b border-slate-200 bg-slate-50/80 text-[9px] font-extrabold uppercase tracking-[.1em] text-slate-400; }
-    .nav-item { @apply flex items-center gap-3 rounded-lg px-3 py-2.5 text-xs font-semibold text-slate-500 transition hover:bg-slate-50 hover:text-slate-900; }
+    .label { @apply mb-1.5 block text-xs font-extrabold uppercase tracking-[.08em] text-slate-500; }
+    .badge { @apply inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold; }
+    .table-head { @apply border-b border-slate-200 bg-slate-50/80 text-[11px] font-extrabold uppercase tracking-[.08em] text-slate-400; }
+    .nav-item { @apply flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold text-slate-500 transition hover:bg-slate-50 hover:text-slate-900; }
     .nav-item-active { @apply bg-brand-50 text-brand-700 hover:bg-brand-50 hover:text-brand-700; }
     .section-title { @apply text-sm font-extrabold tracking-tight text-ink; }
     .metric { @apply rounded-xl border border-slate-200/90 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,.025)] transition hover:border-brand-200 hover:shadow-md; }
     .empty-state { @apply flex flex-col items-center justify-center px-6 py-12 text-center text-sm text-slate-400; }
-    .filter-chip { @apply inline-flex h-9 items-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 hover:border-slate-300; }
+    .filter-chip { @apply inline-flex h-9 items-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 hover:border-slate-300; }
 }
+
+/* Ukuran minimum untuk teks pendukung agar tetap nyaman dibaca pengguna usia berapa pun. */
+.text-xs { font-size: .8125rem !important; line-height: 1.125rem !important; }
+[class*="text-[9px]"] { font-size: .75rem !important; line-height: 1rem !important; }
+[class*="text-[10px]"] { font-size: .8125rem !important; line-height: 1.125rem !important; }
+[class*="text-[11px]"] { font-size: .875rem !important; line-height: 1.25rem !important; }
 
 .scrollbar-thin::-webkit-scrollbar { width: 5px; height: 5px; }
 .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }

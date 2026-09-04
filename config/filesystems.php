@@ -40,7 +40,10 @@ return [
 
         'public' => [
             'driver' => 'local',
-            'root' => storage_path('app/public'),
+            // Shared hosting often cannot create Laravel's public/storage symlink.
+            // PUBLIC_STORAGE_ROOT lets production write directly to that web-accessible
+            // folder, while local development retains the conventional storage path.
+            'root' => env('PUBLIC_STORAGE_ROOT', storage_path('app/public')),
             'url' => rtrim(env('PUBLIC_STORAGE_URL', env('APP_URL', 'http://localhost').'/storage'), '/'),
             'visibility' => 'public',
             'throw' => false,

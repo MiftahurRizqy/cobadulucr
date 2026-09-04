@@ -90,9 +90,10 @@ class Activity extends Model
         ],
     ];
 
-    protected $fillable = ['customer_id', 'opportunity_id', 'user_id', 'type', 'summary', 'detail', 'result', 'next_action', 'occurred_at', 'next_follow_up_at', 'participants', 'follow_up_completed_at', 'follow_up_completed_by', 'follow_up_completion_activity_id'];
+    protected $fillable = ['customer_id', 'lead_id', 'opportunity_id', 'user_id', 'type', 'summary', 'detail', 'result', 'next_action', 'occurred_at', 'next_follow_up_at', 'participants', 'follow_up_completed_at', 'follow_up_completed_by', 'follow_up_completion_activity_id'];
     protected function casts(): array { return ['occurred_at' => 'datetime', 'next_follow_up_at' => 'datetime', 'follow_up_completed_at' => 'datetime', 'participants' => 'array']; }
     public function customer() { return $this->belongsTo(Customer::class); }
+    public function lead() { return $this->belongsTo(Lead::class); }
     public function opportunity() { return $this->belongsTo(Opportunity::class); }
     public function user() { return $this->belongsTo(User::class); }
     public function followUpCompletedBy() { return $this->belongsTo(User::class, 'follow_up_completed_by'); }
@@ -101,6 +102,19 @@ class Activity extends Model
     public function comments() { return $this->morphMany(Comment::class, 'commentable')->oldest(); }
     public function approvalDetail() { return $this->hasOne(ActivityApprovalDetail::class); }
 
+    /** Nama data CRM yang menjadi konteks aktivitas, baik Customer maupun Lead. */
+    public function getSubjectNameAttribute(): string
+    {
+        return $this->customer?->company_name
+            ?? $this->lead?->company_name
+            ?? 'Data tidak tersedia';
+    }
+
+    public function getSubjectTypeAttribute(): string
+    {
+        return $this->lead_id ? 'Lead' : 'Customer';
+    }
+
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
         if ($user->isMasterAdmin()) return $query;
@@ -108,11 +122,13 @@ class Activity extends Model
         if ($user->authority_level === 'staff' && $user->isSales()) {
             return $query->where(fn ($q) => $q
                 ->where('user_id', $user->id)
+                ->orWhereHas('lead', fn ($leadQuery) => $leadQuery->visibleTo($user))
                 ->orWhereJsonContains('participants', $user->id));
         }
 
         return $query->where(fn ($q) => $q
             ->whereHas('customer', fn ($customerQuery) => $customerQuery->visibleTo($user))
+            ->orWhereHas('lead', fn ($leadQuery) => $leadQuery->visibleTo($user))
             ->orWhereJsonContains('participants', $user->id));
     }
 }

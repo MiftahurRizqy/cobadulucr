@@ -44,7 +44,7 @@ class DashboardController extends Controller
             'myTasks' => (clone $tasks)->with('customer')->whereNotIn('status', ['done', 'cancelled'])->orderBy('due_at')->limit(6)->get(),
             'followUps' => (clone $customers)->whereNotNull('next_follow_up_at')->orderBy('next_follow_up_at')->limit(6)->get(),
             'recentActivities' => $user->canAccess('activities.view')
-                ? Activity::query()->visibleTo($user)->with(['customer', 'user'])->latest('occurred_at')->limit(7)->get()
+                ? Activity::query()->visibleTo($user)->with(['customer', 'lead', 'user'])->latest('occurred_at')->limit(7)->get()
                 : collect(),
             'teamUsers' => $user->isMasterAdmin() ? User::where('is_active', true)->count() : null,
         ]);

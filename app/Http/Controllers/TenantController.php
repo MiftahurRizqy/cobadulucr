@@ -8,6 +8,7 @@ use App\Models\Role;
 use App\Models\Tenant;
 use App\Models\User;
 use App\Services\TenantManager;
+use App\Services\TenantAccessManager;
 use App\Services\TenantConfigurationCloner;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -24,7 +25,7 @@ class TenantController extends Controller
     public function index(Request $request, TenantManager $tenancy): View
     {
         $this->authorizePlatform($request, $tenancy);
-        $tenants = Tenant::query()->whereKey($tenancy->current()->id)->get();
+        $tenants = Tenant::query()->orderBy('name')->get();
         foreach ($tenants as $tenant) {
             $tenant->setAttribute('setup_complete', $this->tenantHasAdmin($tenant, $tenancy));
         }
@@ -35,28 +36,34 @@ class TenantController extends Controller
     public function store(Request $request, TenantManager $tenancy, TenantConfigurationCloner $configurationCloner): RedirectResponse
     {
         $this->authorizePlatform($request, $tenancy);
+        $manualDatabaseProvisioning = env('TENANT_DATABASE_PROVISIONING') === 'manual';
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'logo' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
+            'database_name' => [$manualDatabaseProvisioning ? 'required' : 'nullable', 'string', 'max:63'],
+            'database_username' => [$manualDatabaseProvisioning ? 'required' : 'nullable', 'string', 'max:255'],
+            'database_password' => [$manualDatabaseProvisioning ? 'required' : 'nullable', 'string', 'max:255'],
             'admin_name' => ['required', 'string', 'max:255'],
             'admin_email' => ['required', 'email', 'max:255'],
             'admin_password' => ['required', 'confirmed', Password::min(8)],
             'duplicate_configuration' => ['nullable', 'boolean'],
         ]);
-        [$slug, $databaseName] = $this->tenantIdentifiers($data['name']);
+        [$slug, $generatedDatabaseName] = $this->tenantIdentifiers($data['name']);
         $data['slug'] = $slug;
-        $data['database_name'] = $databaseName;
+        $data['database_name'] = $manualDatabaseProvisioning ? $data['database_name'] : $generatedDatabaseName;
 
         $originalTenant = $tenancy->current();
         $configuration = $request->boolean('duplicate_configuration') ? $configurationCloner->export() : null;
         $logoPath = null;
         $databaseCreated = false;
         try {
-            DB::connection('central')->statement(sprintf(
-                'CREATE DATABASE `%s` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci',
-                $data['database_name']
-            ));
-            $databaseCreated = true;
+            if (! $manualDatabaseProvisioning) {
+                DB::connection('central')->statement(sprintf(
+                    'CREATE DATABASE `%s` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci',
+                    $data['database_name']
+                ));
+                $databaseCreated = true;
+            }
 
             if ($request->hasFile('logo')) {
                 $logoPath = $request->file('logo')->store('tenant-logos', 'public');
@@ -64,7 +71,10 @@ class TenantController extends Controller
 
             $tenant = Tenant::create([
                 'name' => $data['name'], 'slug' => Str::slug($data['slug']),
-                'database_name' => $data['database_name'], 'primary_color' => '#4f46e5',
+                'database_name' => $data['database_name'],
+                'database_username' => $manualDatabaseProvisioning ? $data['database_username'] : null,
+                'database_password' => $manualDatabaseProvisioning ? $data['database_password'] : null,
+                'primary_color' => '#4f46e5',
                 'logo_path' => $logoPath,
                 'is_active' => false,
             ]);
@@ -89,7 +99,9 @@ class TenantController extends Controller
 
         AuditLog::record('created', 'tenants', $tenant, null, $tenant->only(['name', 'slug', 'database_name', 'primary_color', 'logo_path', 'is_active']));
 
-        return back()->with('success', 'Perusahaan dan database baru berhasil dibuat'.($configuration ? ' dengan konfigurasi yang diduplikat.' : '.'));
+        return back()->with('success', $manualDatabaseProvisioning
+            ? 'Perusahaan berhasil dibuat menggunakan database yang telah disiapkan'.($configuration ? ' dengan konfigurasi yang diduplikat.' : '.')
+            : 'Perusahaan dan database baru berhasil dibuat'.($configuration ? ' dengan konfigurasi yang diduplikat.' : '.'));
     }
 
     public function toggle(Request $request, Tenant $tenant, TenantManager $tenancy): RedirectResponse

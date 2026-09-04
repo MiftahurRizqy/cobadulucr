@@ -41,6 +41,7 @@ class Lead extends Model
     public function area() { return $this->belongsTo(Area::class); }
     public function businessUnit() { return $this->belongsTo(BusinessUnit::class); }
     public function convertedCustomer() { return $this->hasOne(Customer::class, 'converted_from_lead_id'); }
+    public function activities() { return $this->hasMany(Activity::class); }
 
     public function statusLabel(): string
     {

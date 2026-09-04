@@ -14,7 +14,7 @@
     <section class="card overflow-hidden">
         <header class="border-b border-slate-100 px-5 py-4">
             <h3 class="section-title">{{ \App\Models\Activity::TYPES[$activity->type] }}</h3>
-            <p class="mt-1 text-[10px] text-slate-400">{{ $activity->customer->company_name }}</p>
+            <p class="mt-1 text-[10px] text-slate-400">{{ $activity->subject_name }}</p>
         </header>
 
         <div class="space-y-5 p-5">

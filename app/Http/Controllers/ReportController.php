@@ -9,6 +9,7 @@ use App\Models\Customer;
 use App\Models\Lead;
 use App\Models\Opportunity;
 use App\Models\OpportunityItem;
+use App\Models\SystemSetting;
 use App\Models\Task;
 use App\Models\User;
 use App\Support\BusinessUnitResolver;
@@ -78,12 +79,14 @@ class ReportController extends Controller
             ->leftJoin('customers', 'customers.converted_from_lead_id', '=', 'leads.id')
             ->leftJoin('opportunities', 'opportunities.customer_id', '=', 'customers.id')
             ->leftJoin('opportunity_items', 'opportunity_items.opportunity_id', '=', 'opportunities.id')
-            ->selectRaw("COALESCE(NULLIF(leads.source, ''), 'other') as source_key")
+            // Hostinger menjalankan MySQL dengan ONLY_FULL_GROUP_BY. Kelompokkan
+            // berdasarkan kolom asalnya agar ekspresi label tetap valid di mode itu.
+            ->selectRaw("CASE WHEN leads.source IS NULL OR leads.source = '' THEN 'other' ELSE leads.source END as source_key")
             ->selectRaw('COUNT(DISTINCT leads.id) as total_leads')
             ->selectRaw('COUNT(DISTINCT customers.id) as converted_customers')
             ->selectRaw("COUNT(DISTINCT CASE WHEN opportunity_items.deal_status = 'deal' THEN customers.id END) as customers_with_deal")
             ->selectRaw("COUNT(DISTINCT CASE WHEN opportunity_items.deal_status = 'deal' THEN opportunity_items.id END) as deal_items")
-            ->groupByRaw("COALESCE(NULLIF(leads.source, ''), 'other')")
+            ->groupBy('leads.source')
             ->orderByDesc('total_leads')
             ->get()
             ->map(function ($row) {
@@ -466,27 +469,38 @@ class ReportController extends Controller
     {
         return match ($source) {
             null, '' => '-',
+            'website' => 'Website',
+            'whatsapp_ads' => 'WhatsApp / Ads',
+            'sales_visit' => 'Sales Visit',
+            'social_media' => 'Social Media',
             'other' => 'Lainnya',
-            default => str($source)->replace(['_', '-'], ' ')->title()->toString(),
+            // Source kustom disimpan sebagai teks akhir, jadi tampilkan persis
+            // seperti yang diketik pengguna pada laporan dan export.
+            default => $source,
         };
     }
 
     private function sourceOptions(): array
     {
-        return [
+        $options = [
             'website' => 'Website',
-            'whatsapp' => 'WhatsApp',
-            'referral' => 'Referral',
+            'whatsapp_ads' => 'WhatsApp / Ads',
             'sales_visit' => 'Sales Visit',
-            'event' => 'Event',
-            'ads' => 'Ads',
             'social_media' => 'Social Media',
-            'marketplace' => 'Marketplace',
-            'database' => 'Database',
-            'telemarketing' => 'Telemarketing',
-            'walk_in' => 'Walk In',
-            'other' => 'Lainnya',
         ];
+
+        // Source yang dibuat melalui pilihan "Lainnya" disimpan per perusahaan
+        // dan otomatis menjadi pilihan filter maupun export berikutnya.
+        foreach (SystemSetting::json('lead_source_options') as $source) {
+            $source = trim((string) $source);
+            if ($source !== '') {
+                $options[$source] = $source;
+            }
+        }
+
+        $options['other'] = 'Lainnya';
+
+        return $options;
     }
 
     private function countLeads($user, $from, $to, Request $request): int

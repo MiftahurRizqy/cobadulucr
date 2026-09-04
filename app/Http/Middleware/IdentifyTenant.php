@@ -25,7 +25,9 @@ class IdentifyTenant
         if (! $tenant) {
             auth()->logout();
             $request->session()->forget('tenant_id');
-            return redirect()->route('login')->withErrors(['tenant_id' => 'Pilih perusahaan untuk melanjutkan.']);
+            return $request->session()->has('platform_user_id')
+                ? redirect()->route('company.select')
+                : redirect()->route('login')->withErrors(['email' => 'Silakan masuk untuk melanjutkan.']);
         }
 
         app(TenantManager::class)->initialize($tenant);

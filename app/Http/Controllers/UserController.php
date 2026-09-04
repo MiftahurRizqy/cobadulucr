@@ -8,8 +8,11 @@ use App\Models\AuditLog;
 use App\Models\KpiTemplate;
 use App\Models\Role;
 use App\Models\SalesKpiTarget;
+use App\Models\Tenant;
+use App\Models\TenantUserAccess;
 use App\Models\User;
 use App\Support\Crm;
+use App\Services\TenantAccessManager;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -42,9 +45,11 @@ class UserController extends Controller
         return view('users.form', $this->formData(new User));
     }
 
-    public function store(Request $request)
+    public function store(Request $request, TenantAccessManager $tenantAccess)
     {
         $data = $this->validated($request);
+        $tenantIds = $data['tenant_ids'];
+        unset($data['tenant_ids']);
         $data['authority_level'] = $this->authorityLevelFor($request->input('role_ids', []));
         $data['is_approver'] = $request->has('is_approver')
             ? $request->boolean('is_approver')
@@ -53,6 +58,7 @@ class UserController extends Controller
         $user = User::create($data);
         $this->sync($request, $user);
         $this->applyCurrentKpiTemplate($user, $request->user());
+        $this->syncTenantAccess($user, $tenantIds, $tenantAccess);
 
         return redirect()->route('users.index')->with('success', 'User berhasil dibuat.');
     }
@@ -62,9 +68,11 @@ class UserController extends Controller
         return view('users.form', $this->formData($user->load('roles')));
     }
 
-    public function update(Request $request, User $user)
+    public function update(Request $request, User $user, TenantAccessManager $tenantAccess)
     {
         $data = $this->validated($request, $user);
+        $tenantIds = $data['tenant_ids'];
+        unset($data['tenant_ids']);
         $data['authority_level'] = $this->authorityLevelFor($request->input('role_ids', []));
         $willLoseApprovalAccess = $user->canApprove()
             && (! (bool) ($data['is_approver'] ?? false) || ! (bool) $data['is_active']);
@@ -78,6 +86,7 @@ class UserController extends Controller
         }
         $user->update($data);
         $this->sync($request, $user);
+        $this->syncTenantAccess($user, $tenantIds, $tenantAccess);
 
         return redirect()->route('users.index')->with('success', 'Data pengguna berhasil diperbarui.');
     }
@@ -93,6 +102,8 @@ class UserController extends Controller
             'is_active' => ['required', 'boolean'],
             'role_ids' => ['required', 'array', 'size:1'],
             'role_ids.*' => ['integer', 'distinct', 'exists:roles,id'],
+            'tenant_ids' => ['required', 'array', 'min:1'],
+            'tenant_ids.*' => ['integer', 'distinct', Rule::exists('central.tenants', 'id')],
         ]);
 
         $this->validateRoleRules($data, $user);
@@ -152,7 +163,18 @@ class UserController extends Controller
                 ->orderBy('name')
                 ->get(),
             'userTypes' => Crm::USER_TYPES,
+            'tenants' => Tenant::query()->where('is_active', true)->orderBy('name')->get(['id', 'name']),
+            'selectedTenantIds' => $user->exists
+                ? TenantUserAccess::query()->where('central_user_id', $user->id)->pluck('tenant_id')->map(fn ($id) => (int) $id)->all()
+                : [(int) session('tenant_id')],
         ];
+    }
+
+    private function syncTenantAccess(User $user, array $tenantIds, TenantAccessManager $tenantAccess): void
+    {
+        $centralUser = User::on('central')->findOrFail($user->id);
+        $tenants = Tenant::query()->whereIn('id', $tenantIds)->where('is_active', true)->get();
+        $tenantAccess->sync($centralUser, $tenants);
     }
 
     private function authorityLevelFor(array $roleIds): string
@@ -186,18 +208,20 @@ class UserController extends Controller
             default => null,
         };
 
+        $managerLabel = in_array($role->slug, ['sales', 'telesales'], true) ? 'CSA' : 'Sales Manager';
+
         if ($allowedManagerRoles !== null && ! $manager) {
-            $errors['manager_id'] = 'Koordinator wajib dipilih untuk role '.$role->name.'.';
+            $errors['manager_id'] = $managerLabel.' wajib dipilih untuk role '.$role->name.'.';
         } elseif ($allowedManagerRoles !== null && ! $manager->roles->contains(fn (Role $managerRole) => in_array($managerRole->slug, $allowedManagerRoles, true))) {
-            $errors['manager_id'] = 'Koordinator yang dipilih tidak sesuai dengan hierarki role '.$role->name.'.';
+            $errors['manager_id'] = $managerLabel.' yang dipilih tidak sesuai dengan hierarki role '.$role->name.'.';
         }
 
         if (in_array($role->slug, ['sales_manager', 'master_admin'], true) && $manager) {
-            $errors['manager_id'] = 'Role '.$role->name.' tidak memerlukan koordinator.';
+            $errors['manager_id'] = 'Role '.$role->name.' tidak memerlukan penanggung jawab.';
         }
 
         if ($user && $manager && $this->createsCoordinatorCycle($user, $manager)) {
-            $errors['manager_id'] = 'Koordinator tersebut akan membuat hierarki pengguna berputar.';
+            $errors['manager_id'] = 'Penanggung jawab tersebut akan membuat hierarki pengguna berputar.';
         }
 
         if ($errors) {

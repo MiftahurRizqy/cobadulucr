@@ -85,6 +85,7 @@ class TenantConfigurationCloner
                 KpiMetric::query()->create($metric);
             }
 
+
             $adminId = User::query()->where('authority_level', 'master_admin')->value('id');
             foreach ($configuration['pipelines'] ?? [] as $pipelineData) {
                 $attributes = $pipelineData['attributes'];

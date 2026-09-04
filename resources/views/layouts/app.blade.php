@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>@yield('title', 'Dashboard') · CRM {{ $tenant?->name }}</title>
+    <link rel="icon" type="image/svg+xml" href="{{ asset('images/favicon.svg') }}">
     <script>
         (() => {
             const saved = localStorage.getItem('crm-theme');
@@ -187,6 +188,7 @@
             </button>
             <div x-show="profile" x-cloak class="mt-1 space-y-1 lg:hidden lg:group-hover/sidebar:block">
                 <a href="{{ route('profile.edit') }}" class="block w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-slate-600 hover:bg-slate-50 hover:text-brand-700">Profil saya</a>
+                @if(session()->has('platform_user_id'))<a href="{{ route('company.select') }}" class="block w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-slate-600 hover:bg-slate-50 hover:text-brand-700">Ganti perusahaan</a>@endif
                 <form method="POST" action="{{ route('logout') }}">@csrf<button class="w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-rose-600 hover:bg-rose-50">Keluar dari aplikasi</button></form>
             </div>
         </div>

@@ -6,6 +6,7 @@ use App\Models\Activity;
 use App\Models\Attachment;
 use App\Models\Comment;
 use App\Models\Customer;
+use App\Models\Lead;
 use App\Models\Opportunity;
 use App\Models\OpportunityItem;
 use App\Models\User;
@@ -54,7 +55,7 @@ class ActivityController extends Controller
             default => [null, null],
         };
 
-        $activitiesQuery = (clone $visibleActivities)->with(['customer', 'opportunity', 'user', 'approvalDetail', 'attachments', 'comments.user'])
+        $activitiesQuery = (clone $visibleActivities)->with(['customer', 'lead', 'opportunity', 'user', 'approvalDetail', 'attachments', 'comments.user'])
             ->when($selectedUserId, fn ($q) => $q->where('user_id', $selectedUserId))
             ->when($request->type, fn ($q, $type) => $q->where('type', $type))
             ->when($needsEvidenceReview, fn ($q) => $q->whereHas('attachments', fn ($q) => $q->whereIn(
@@ -68,7 +69,8 @@ class ActivityController extends Controller
                 ->orWhere('detail', 'like', "%$s%")
                 ->orWhere('result', 'like', "%$s%")
                 ->orWhere('next_action', 'like', "%$s%")
-                ->orWhereHas('customer', fn ($q) => $q->where('company_name', 'like', "%$s%"))));
+                ->orWhereHas('customer', fn ($q) => $q->where('company_name', 'like', "%$s%"))
+                ->orWhereHas('lead', fn ($q) => $q->where('company_name', 'like', "%$s%"))));
         $activities = $activitiesQuery->latest('occurred_at')->paginate(20, ['*'], 'activity_page')->withQueryString();
         $participantUsers = User::query()
             ->whereIn('id', $activities->getCollection()->flatMap(fn (Activity $activity) => $activity->participants ?? [])->unique())
@@ -97,7 +99,7 @@ class ActivityController extends Controller
     {
         return view('activities.form', $this->formData(
             $request,
-            new Activity(['customer_id' => $request->customer, 'opportunity_id' => $request->opportunity, 'occurred_at' => now()]),
+            new Activity(['customer_id' => $request->customer, 'lead_id' => $request->lead, 'opportunity_id' => $request->opportunity, 'occurred_at' => now()]),
         ));
     }
 
@@ -111,6 +113,7 @@ class ActivityController extends Controller
             $request,
             new Activity([
                 'customer_id' => $activity->customer_id,
+                'lead_id' => $activity->lead_id,
                 'opportunity_id' => $activity->opportunity_id,
                 'type' => 'call',
                 'summary' => 'Follow-up: '.$activity->summary,
@@ -122,12 +125,23 @@ class ActivityController extends Controller
 
     public function pendingFollowUps(Request $request)
     {
-        $data = $request->validate(['customer_id' => ['required', 'integer', 'exists:customers,id']]);
-        abort_unless(Customer::visibleTo($request->user())->whereKey($data['customer_id'])->exists(), 403);
+        $data = $request->validate([
+            'customer_id' => ['nullable', 'required_without:lead_id', 'integer', 'exists:customers,id'],
+            'lead_id' => ['nullable', 'required_without:customer_id', 'integer', 'exists:leads,id'],
+        ]);
+        if (! empty($data['customer_id']) && ! empty($data['lead_id'])) {
+            throw ValidationException::withMessages(['customer_id' => 'Pilih salah satu: customer atau lead.']);
+        }
+        if (! empty($data['customer_id'])) {
+            abort_unless(Customer::visibleTo($request->user())->whereKey($data['customer_id'])->exists(), 403);
+        } else {
+            abort_unless(Lead::visibleTo($request->user())->whereKey($data['lead_id'])->exists(), 403);
+        }
 
         return response()->json(
             Activity::query()->visibleTo($request->user())
-                ->where('customer_id', $data['customer_id'])
+                ->when(! empty($data['customer_id']), fn ($query) => $query->where('customer_id', $data['customer_id']))
+                ->when(! empty($data['lead_id']), fn ($query) => $query->where('lead_id', $data['lead_id']))
                 ->whereNotNull('next_follow_up_at')
                 ->whereNull('follow_up_completed_at')
                 ->orderBy('next_follow_up_at')
@@ -152,7 +166,8 @@ class ActivityController extends Controller
                 'follow_up_completed_at' => now(),
                 'follow_up_completed_by' => $request->user()->id,
             ]);
-            $this->syncCustomerNextFollowUp($activity->customer);
+            if ($activity->customer) $this->syncCustomerNextFollowUp($activity->customer);
+            if ($activity->lead) $this->syncLeadNextFollowUp($activity->lead);
             $this->syncOpportunityNextFollowUp($activity->opportunity);
         }
 
@@ -167,10 +182,15 @@ class ActivityController extends Controller
             ->where('status', '!=', 'inactive')
             ->orderBy('company_name')
             ->get();
+        $leads = Lead::visibleTo($request->user())
+            ->where('status', '!=', 'converted')
+            ->orderBy('company_name')
+            ->get(['id', 'lead_id', 'company_name', 'brand_name']);
 
         return [
             'activity' => $activity,
             'customers' => $customers,
+            'leads' => $leads,
             'opportunities' => Opportunity::visibleTo($request->user())
                 ->with(['stage:id,name', 'items:id,opportunity_id,product_name,quantity,quantity_unit,target_price,unit_price'])
                 ->whereHas('customer', fn ($query) => $query->where('status', '!=', 'inactive'))
@@ -196,7 +216,8 @@ class ActivityController extends Controller
             && ! $isDecisionType;
         $resultRequired = $request->user()->isSales() && ! $isDecisionType;
         $validator = Validator::make($request->all(), [
-            'customer_id' => ['required', Rule::exists('customers', 'id')->where(fn ($query) => $query->where('status', '!=', 'inactive'))],
+            'customer_id' => ['nullable', 'required_without:lead_id', Rule::exists('customers', 'id')->where(fn ($query) => $query->where('status', '!=', 'inactive'))],
+            'lead_id' => ['nullable', 'required_without:customer_id', 'exists:leads,id'],
             'opportunity_id' => ['nullable', 'exists:opportunities,id'],
             'type' => ['required', 'in:'.implode(',', array_keys(Activity::TYPES))], 'summary' => ['required'],
             'detail' => ['nullable', 'string'],
@@ -216,6 +237,29 @@ class ActivityController extends Controller
         ]);
 
         $validator->after(function ($validator) use ($request, $evidenceRequired) {
+            $hasCustomer = $request->filled('customer_id');
+            $hasLead = $request->filled('lead_id');
+
+            if (! $hasCustomer && ! $hasLead) {
+                $validator->errors()->add('customer_id', 'Pilih customer atau lead untuk aktivitas ini.');
+            }
+
+            if ($hasCustomer && $hasLead) {
+                $validator->errors()->add('customer_id', 'Pilih salah satu: customer atau lead.');
+            }
+
+            if ($hasLead && ! Lead::visibleTo($request->user())->whereKey($request->input('lead_id'))->exists()) {
+                $validator->errors()->add('lead_id', 'Lead yang dipilih tidak dapat diakses.');
+            }
+
+            if ($hasLead && $request->filled('opportunity_id')) {
+                $validator->errors()->add('opportunity_id', 'Opportunity hanya dapat dipilih untuk aktivitas customer.');
+            }
+
+            if ($hasLead && in_array($request->input('type'), Activity::DECISION_TYPES, true)) {
+                $validator->errors()->add('type', 'Aktivitas approval hanya dapat dibuat untuk customer.');
+            }
+
             if ($request->filled('opportunity_id')) {
                 $opportunityMatchesCustomer = Opportunity::query()
                     ->visibleTo($request->user())
@@ -305,6 +349,11 @@ class ActivityController extends Controller
         });
 
         $data = $validator->validate();
+        foreach (['customer_id', 'lead_id', 'opportunity_id'] as $relationKey) {
+            $data[$relationKey] = filled($data[$relationKey] ?? null)
+                ? (int) $data[$relationKey]
+                : null;
+        }
         $approvalDetails = null;
         if (in_array($data['type'], Activity::DECISION_TYPES, true)) {
             $allowedApprovalKeys = array_keys(Activity::APPROVAL_FIELDS[$data['type']]);
@@ -361,11 +410,17 @@ class ActivityController extends Controller
             ->unique()
             ->values();
         unset($data['completes_follow_up_id'], $data['attachment_metadata'], $data['attachments'], $data['participant_ids']);
-        abort_unless(Customer::visibleTo($request->user())->whereKey($data['customer_id'])->exists(), 403);
+        $customer = null;
+        $lead = null;
+        if (! empty($data['customer_id'])) {
+            $customer = Customer::visibleTo($request->user())->whereKey($data['customer_id'])->firstOrFail();
+        } else {
+            $lead = Lead::visibleTo($request->user())->whereKey($data['lead_id'])->firstOrFail();
+        }
         $sourceFollowUp = $completesFollowUpId
             ? Activity::query()->visibleTo($request->user())->whereKey($completesFollowUpId)->firstOrFail()
             : null;
-        abort_if($sourceFollowUp && (int) $sourceFollowUp->customer_id !== (int) $data['customer_id'], 422, 'Customer follow-up tidak sesuai.');
+        abort_if($sourceFollowUp && ((int) $sourceFollowUp->customer_id !== (int) ($data['customer_id'] ?? 0) || (int) $sourceFollowUp->lead_id !== (int) ($data['lead_id'] ?? 0)), 422, 'Jadwal follow-up tidak sesuai dengan data yang dipilih.');
         abort_if($sourceFollowUp && $sourceFollowUp->follow_up_completed_at, 422, 'Follow-up ini sudah diselesaikan.');
         $data['user_id'] = $request->user()->id;
         $data['participants'] = $participantIds->all();
@@ -413,10 +468,15 @@ class ActivityController extends Controller
                 'follow_up_completion_activity_id' => $activity->id,
             ]);
         }
-        $activity->customer->update(['last_activity_at' => $activity->occurred_at, 'next_follow_up_at' => $activity->next_follow_up_at]);
-        $this->syncOpportunityFromActivity($activity);
+        if ($customer) {
+            $customer->update(['last_activity_at' => $activity->occurred_at, 'next_follow_up_at' => $activity->next_follow_up_at]);
+            $this->syncOpportunityFromActivity($activity);
+        } elseif ($lead) {
+            $lead->update(['last_activity_at' => $activity->occurred_at, 'next_follow_up_at' => $activity->next_follow_up_at]);
+        }
         if ($sourceFollowUp) {
-            $this->syncCustomerNextFollowUp($activity->customer);
+            if ($activity->customer) $this->syncCustomerNextFollowUp($activity->customer);
+            if ($activity->lead) $this->syncLeadNextFollowUp($activity->lead);
             $this->syncOpportunityNextFollowUp($activity->opportunity);
         }
         foreach ($participantIds as $participantId) {
@@ -430,15 +490,17 @@ class ActivityController extends Controller
                 $isApprovalRecipient ? 'activity_approval_waiting' : 'activity_invitation',
                 $isApprovalRecipient ? 'Approval menunggu keputusan' : 'Anda dilibatkan dalam aktivitas',
                 $isApprovalRecipient
-                    ? $request->user()->name.' mengajukan '.(Activity::TYPES[$activity->type] ?? 'approval').' untuk '.$activity->customer->company_name.'.'
-                    : $request->user()->name.' melibatkan Anda pada "'.$activity->summary.'" untuk '.$activity->customer->company_name.'.',
+                    ? $request->user()->name.' mengajukan '.(Activity::TYPES[$activity->type] ?? 'approval').' untuk '.$customer?->company_name.'.'
+                    : $request->user()->name.' melibatkan Anda pada "'.$activity->summary.'" untuk '.($customer?->company_name ?? $lead?->company_name).'.',
                 ($isApprovalRecipient
                     ? route('approvals.index', ['status' => 'pending', 'activity' => $activity->id], false).'#approval-'.$activity->id
                     : route('activities.index', ['activity' => $activity->id], false).'#activity-'.$activity->id),
                 ['activity_id' => $activity->id]
             );
         }
-        return redirect()->route('customers.show', $activity->customer_id)->with('success', 'Aktivitas berhasil dicatat.');
+        return $customer
+            ? redirect()->route('customers.show', $activity->customer_id)->with('success', 'Aktivitas berhasil dicatat.')
+            : redirect()->route('activities.index')->with('success', 'Aktivitas Lead berhasil dicatat.');
     }
 
     public function decideApproval(Request $request, Activity $activity, CrmNotifier $notifier, NavigationData $navigationData)
@@ -630,7 +692,7 @@ class ActivityController extends Controller
                     $participantId,
                     'activity_invitation',
                     'Anda dilibatkan dalam aktivitas',
-                    $request->user()->name.' menambahkan Anda ke diskusi "'.$activity->summary.'" untuk '.$activity->customer->company_name.'.',
+                    $request->user()->name.' menambahkan Anda ke diskusi "'.$activity->summary.'" untuk '.$activity->subject_name.'.',
                     route('activities.index', ['activity' => $activity->id], false).'#activity-'.$activity->id,
                     ['activity_id' => $activity->id]
                 );
@@ -741,6 +803,18 @@ class ActivityController extends Controller
         $customer->update([
             'next_follow_up_at' => Activity::query()
                 ->where('customer_id', $customer->id)
+                ->whereNotNull('next_follow_up_at')
+                ->whereNull('follow_up_completed_at')
+                ->orderBy('next_follow_up_at')
+                ->value('next_follow_up_at'),
+        ]);
+    }
+
+    private function syncLeadNextFollowUp(Lead $lead): void
+    {
+        $lead->update([
+            'next_follow_up_at' => Activity::query()
+                ->where('lead_id', $lead->id)
                 ->whereNotNull('next_follow_up_at')
                 ->whereNull('follow_up_completed_at')
                 ->orderBy('next_follow_up_at')

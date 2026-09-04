@@ -148,7 +148,11 @@ class OpportunityController extends Controller
 
         $data = $this->validated($request);
         $items = collect($data['items']);
-        $participantIds = collect($data['participant_ids'] ?? [])
+        $participantIds = User::query()
+            ->where('is_active', true)
+            ->whereIn('id', $data['participant_ids'] ?? [])
+            ->whereHas('roles', fn ($query) => $query->whereIn('slug', ['sales', 'telesales']))
+            ->pluck('id')
             ->map(fn ($id) => (int) $id)
             ->reject(fn ($id) => $id === (int) $request->user()->id)
             ->unique()
@@ -489,10 +493,25 @@ class OpportunityController extends Controller
     {
         $user = auth()->user();
         $canAssignOwner = $this->canAssignOwner($user);
+        $customers = Customer::visibleTo($user)
+            ->with(['assignedUsers' => fn ($query) => $query
+                ->where('is_active', true)
+                ->whereHas('roles', fn ($roles) => $roles->whereIn('slug', ['sales', 'telesales']))])
+            ->orderBy('company_name')
+            ->get();
+        $customerCollaborators = $customers->mapWithKeys(fn (Customer $customer) => [
+            (string) $customer->id => $customer->assignedUsers
+                ->filter(fn (User $assignedUser) => $assignedUser->pivot->responsibility === 'collaborator')
+                ->pluck('id')
+                ->map(fn ($id) => (string) $id)
+                ->values()
+                ->all(),
+        ]);
 
         return [
             'opportunity' => $opportunity,
-            'customers' => Customer::visibleTo($user)->orderBy('company_name')->get(),
+            'customers' => $customers,
+            'customerCollaborators' => $customerCollaborators,
             'pipelines' => Pipeline::where('is_active', true)->with('stages')->get(),
             'users' => $canAssignOwner
                 ? User::where('is_active', true)->whereHas('roles', fn ($query) => $query->whereIn('slug', ['sales', 'telesales']))->orderBy('name')->get()
@@ -500,6 +519,7 @@ class OpportunityController extends Controller
             'canAssignOwner' => $canAssignOwner,
             'collaborationUsers' => User::where('is_active', true)
                 ->whereKeyNot($user->id)
+                ->whereHas('roles', fn ($query) => $query->whereIn('slug', ['sales', 'telesales']))
                 ->orderBy('name')
                 ->get(['id', 'name', 'employee_id', 'user_type', 'authority_level']),
         ];

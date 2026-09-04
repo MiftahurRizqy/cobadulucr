@@ -31,12 +31,12 @@ class NavigationData
                 $query = Activity::query()->visibleTo($user)->whereNotNull('next_follow_up_at')
                     ->whereNull('follow_up_completed_at')->where('next_follow_up_at', '<=', now()->addDays(2));
                 $followUpCount = (clone $query)->count();
-                $followUps = $query->with('customer:id,company_name')->orderBy('next_follow_up_at')->limit(8)->get()
+                $followUps = $query->with(['customer:id,company_name', 'lead:id,company_name'])->orderBy('next_follow_up_at')->limit(8)->get()
                     ->map(fn (Activity $activity): array => [
                         'id' => $activity->id,
                         'is_overdue' => $activity->next_follow_up_at->isPast(),
                         'summary' => $activity->summary,
-                        'customer_name' => $activity->customer?->company_name ?? 'Customer',
+                        'customer_name' => $activity->subject_name,
                         'due_ago' => $activity->next_follow_up_at->diffForHumans(),
                     ])->values()->all();
             }

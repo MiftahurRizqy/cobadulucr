@@ -18,7 +18,11 @@ class TenantManager
             return;
         }
         config([
-            'database.connections.tenant' => array_merge($central, ['database' => $tenant->database_name]),
+            'database.connections.tenant' => array_merge($central, [
+                'database' => $tenant->database_name,
+                'username' => $tenant->database_username ?: $central['username'],
+                'password' => $tenant->database_password ?: $central['password'],
+            ]),
             'database.default' => 'tenant',
         ]);
         DB::purge('tenant');

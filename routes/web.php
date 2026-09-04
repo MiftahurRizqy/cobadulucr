@@ -8,6 +8,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\CustomerDuplicateController;
 use App\Http\Controllers\CustomerTypeSettingController;
+use App\Http\Controllers\CompanySelectionController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DepartmentActivityPolicyController;
 use App\Http\Controllers\LeadController;
@@ -31,6 +32,10 @@ Route::middleware('guest')->group(function () {
     Route::get('/login', [AuthController::class, 'create'])->name('login');
     Route::post('/login', [AuthController::class, 'store'])->name('login.store');
 });
+
+Route::get('/choose-company', [CompanySelectionController::class, 'create'])->name('company.select');
+Route::post('/choose-company', [CompanySelectionController::class, 'store'])->name('company.select.store');
+Route::post('/sign-out', [CompanySelectionController::class, 'destroy'])->name('company.logout');
 
 Route::middleware(['tenant', 'auth', 'active'])->group(function () {
     Route::get('/', DashboardController::class)->name('dashboard');

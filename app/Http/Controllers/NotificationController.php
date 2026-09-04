@@ -18,8 +18,8 @@ class NotificationController extends Controller
         if (! $request->user()->canAccess('activities.view')) $followUps->whereRaw('1 = 0');
 
         return view('notifications.index', [
-            'overdueFollowUps' => (clone $followUps)->with(['customer', 'user'])->where('next_follow_up_at', '<', now())->orderBy('next_follow_up_at')->limit(20)->get(),
-            'upcomingFollowUps' => (clone $followUps)->with(['customer', 'user'])->whereBetween('next_follow_up_at', [now(), now()->addDays(2)])->orderBy('next_follow_up_at')->limit(20)->get(),
+            'overdueFollowUps' => (clone $followUps)->with(['customer', 'lead', 'user'])->where('next_follow_up_at', '<', now())->orderBy('next_follow_up_at')->limit(20)->get(),
+            'upcomingFollowUps' => (clone $followUps)->with(['customer', 'lead', 'user'])->whereBetween('next_follow_up_at', [now(), now()->addDays(2)])->orderBy('next_follow_up_at')->limit(20)->get(),
             'notifications' => CrmNotification::where('user_id', $request->user()->id)->latest()->paginate(30),
         ]);
     }
@@ -45,7 +45,7 @@ class NotificationController extends Controller
                 ->whereNotNull('next_follow_up_at')->whereNull('follow_up_completed_at')
                 ->where('next_follow_up_at', '<=', now()->addDays(2));
             $unread += (clone $pendingFollowUps)->count();
-            $headerFollowUps = (clone $pendingFollowUps)->with('customer')->orderBy('next_follow_up_at')->limit(8)->get();
+            $headerFollowUps = (clone $pendingFollowUps)->with(['customer', 'lead'])->orderBy('next_follow_up_at')->limit(8)->get();
         }
 
         $popupNotifications = $recentNotifications->map(fn (CrmNotification $notification) => [
@@ -60,7 +60,7 @@ class NotificationController extends Controller
         ])->concat($headerFollowUps->map(fn (Activity $activity) => [
             'id' => 'follow-up-'.$activity->id,
             'title' => $activity->next_follow_up_at->isPast() ? 'Follow-up terlambat' : 'Follow-up segera',
-            'message' => $activity->summary.' · '.$activity->customer->company_name,
+            'message' => $activity->summary.' · '.$activity->subject_name,
             'read' => false,
             'created_at' => $activity->next_follow_up_at->diffForHumans(),
             'read_url' => null,

@@ -93,7 +93,7 @@
                     <div><label class="label">Sales penanggung jawab</label><div class="field flex items-center bg-slate-50 font-semibold text-slate-700">{{ auth()->user()->name }}</div><input type="hidden" name="owner_id" value="{{ $lead->exists ? $lead->owner_id : auth()->id() }}"></div>
                 @else
                     @php($ownerOptions = $users->map(fn ($user) => ['id' => (string) $user->id, 'name' => $user->name, 'role' => $user->roleNames()])->values())
-                    <div class="relative" x-data="{ open: false, search: '', selected: @js((string) old('owner_id', $lead->owner_id ?? '')), options: @js($ownerOptions), get chosen() { return this.options.find(item => item.id === this.selected); }, get matches() { const q = this.search.toLowerCase(); return this.options.filter(item => !q || item.name.toLowerCase().includes(q) || item.role.toLowerCase().includes(q)); }, choose(id) { this.selected = id; this.open = false; this.search = ''; } }" @keydown.escape.window="open=false">
+                    <div class="relative" x-data="{ open: false, search: '', selected: @js((string) old('owner_id', $lead->owner_id ?? '')), options: @js($ownerOptions), get chosen() { return this.options.find(item => item.id === this.selected); }, get matches() { const q = this.search.toLowerCase(); return this.options.filter(item => !q || item.name.toLowerCase().includes(q) || item.role.toLowerCase().includes(q)); }, choose(id) { this.selected = id; this.open = false; this.search = ''; window.dispatchEvent(new CustomEvent('lead-owner-selected', { detail: id })); } }" @keydown.escape.window="open=false">
                         <label class="label">Sales/Telesales penanggung jawab *</label>
                         <input type="hidden" name="owner_id" :value="selected">
                         <button type="button" class="field flex items-center justify-between gap-3 text-left" @click="open=!open">
@@ -110,8 +110,8 @@
                     </div>
                 @endif
                 @if($canInvite)
-                @php($collaborationOptions = $users->map(fn ($user) => ['id' => (string) $user->id, 'name' => $user->name, 'role' => $user->roleNames()])->values())
-                <div class="relative" x-data="{ open: false, search: '', selected: @js($selectedCollaborators->values()), options: @js($collaborationOptions), get matches() { const q = this.search.toLowerCase(); return this.options.filter(item => !q || item.name.toLowerCase().includes(q) || item.role.toLowerCase().includes(q)); } }" @keydown.escape.window="open=false">
+                @php($collaborationOptions = $users->map(fn ($user) => ['id' => (string) $user->id, 'name' => $user->name, 'role' => $user->roleNames(), 'canCollaborate' => $user->roles->contains(fn ($role) => in_array($role->slug, ['sales', 'telesales'], true))])->values())
+                <div class="relative" x-data="{ open: false, search: '', selected: @js($selectedCollaborators->values()), ownerId: @js((string) ($isSales ? auth()->id() : old('owner_id', $lead->owner_id ?? ''))), options: @js($collaborationOptions), get matches() { const q = this.search.toLowerCase(); return this.options.filter(item => item.canCollaborate && item.id !== this.ownerId && (!q || item.name.toLowerCase().includes(q) || item.role.toLowerCase().includes(q))); } }" @lead-owner-selected.window="ownerId = $event.detail; selected = selected.filter(id => id !== ownerId)" @keydown.escape.window="open=false">
                     <label class="label">Kolaborasi</label>
                     <button type="button" class="field flex items-center justify-between gap-3 text-left" @click="open=!open">
                         <span class="min-w-0 truncate text-sm" :class="selected.length ? 'font-semibold text-slate-700' : 'text-slate-400'" x-text="selected.length ? selected.length + ' rekan dipilih' : 'Pilih rekan (opsional)'"></span>
@@ -126,12 +126,12 @@
                     </div>
                 </div>
                 @endif
-                <div><label class="label">Source *</label><select class="field" name="source" required><option value="">Pilih source</option>@foreach(['website'=>'Website','whatsapp'=>'WhatsApp','referral'=>'Referral','sales_visit'=>'Sales Visit','event'=>'Event','ads'=>'Ads','social_media'=>'Social Media','marketplace'=>'Marketplace','database'=>'Database','telemarketing'=>'Telemarketing','walk_in'=>'Walk In','other'=>'Other'] as $value=>$label)<option value="{{ $value }}" @selected(old('source',$lead->source)===$value)>{{ $label }}</option>@endforeach</select></div>
+                <div x-data="{ source: @js(old('source',$lead->source)) }"><label class="label">Source *</label><select class="field" name="source" x-model="source" required><option value="">Pilih source</option>@foreach($sourceOptions as $value=>$label)<option value="{{ $value }}">{{ $label }}</option>@endforeach</select><div x-show="source === 'other'" x-cloak class="mt-2"><input class="field" name="source_custom" value="{{ old('source_custom') }}" placeholder="Tulis source lain, contoh: Instagram" :required="source === 'other'"><p class="mt-1 text-[10px] text-slate-400">Nama yang Anda isi langsung tersimpan dan muncul pada dropdown source berikutnya.</p></div></div>
                 <div><label class="label">Status *</label><select class="field" name="status" required><option value="">Pilih status</option>@foreach(\App\Models\Lead::EDITABLE_STATUSES as $value=>$label)<option value="{{ $value }}" @selected(old('status',$lead->status)===$value)>{{ $label }}</option>@endforeach</select></div>
                 <div><label class="label">Next follow-up</label><input type="datetime-local" class="field" name="next_follow_up_at" value="{{ old('next_follow_up_at',$lead->next_follow_up_at?->format('Y-m-d\TH:i')) }}"></div>
             </div>
         </section>
-        <div class="flex gap-3"><a href="{{ route('customers.index',['view'=>'prospects']) }}" class="btn-secondary flex-1">Batal</a><button class="btn-primary flex-1">Simpan</button></div>
+        <div class="flex gap-3">@if($lead->exists)<a href="{{ route('activities.create',['lead'=>$lead->id]) }}" class="btn-secondary flex-1">+ Catat aktivitas</a>@else<a href="{{ route('customers.index',['view'=>'prospects']) }}" class="btn-secondary flex-1">Batal</a>@endif<button class="btn-primary flex-1">Simpan</button></div>
     </aside>
 </div>
 </form>
